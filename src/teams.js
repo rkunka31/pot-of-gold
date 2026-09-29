@@ -2,6 +2,7 @@
 // Handicap Index from the player roster; tee code from the tee sheet.
 (function (root) {
   var P = function (name, index, tee) { return { name: name, index: index, tee: tee || 'GRY', adj: 0 }; };
+  var ROSTER_VERSION = '2026-09-29 preliminary';
   var TEAMS = [
     { id: 't01', group: '1A', players: [P('Quinn Kerr', 1.0, 'BL'), P('Jamie Janjevich', 10.3)] },
     { id: 't02', group: '1A', players: [P('Jeff Smith', 6.1), P('Tyson MacLean', 14.2)] },
@@ -36,6 +37,7 @@
     { id: 't31', group: '10B', players: [P('Al Dairou', 3.9), P('David Buchanan', 10.7, 'WHT')] },
     { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL'), P('Mike Smith', 11.2, 'WHT')] }
   ];
+  TEAMS.version = ROSTER_VERSION;
   if (typeof module !== 'undefined' && module.exports) module.exports = TEAMS;
   else root.POT_TEAMS = TEAMS;
 })(typeof window !== 'undefined' ? window : this);

@@ -98,7 +98,7 @@
   }
 
   // teams: [{players:[{index, tee, adj}], ...}]
-  // settings: {allowance (0-1), sims, rounds, payouts:[shares], seed}
+  // settings: {allowance (0-1), sims, rounds, payouts:[shares], seed, offsets:[strokes per team]}
   // Returns {teams:[{ch:[], ph:[], pWin, pMoney, posProb:[], evShare}], ranks: Uint8Array(sims*n), n, sims}
   function simulate(teams, settings) {
     var allowance = settings.allowance == null ? 1 : settings.allowance;
@@ -124,6 +124,8 @@
       });
     });
 
+    var offsets = settings.offsets || null; // strokes added to each team's total (Saturday carry-over)
+    var meanScore = new Float64Array(n);   // mean simulated total before offsets
     var payShare = new Float64Array(n);   // expected share of pot, all positions
     var posProb = [];                      // posProb[i][k] = P(team i finishes in position k+1 (before ties))
     for (var i = 0; i < n; i++) posProb.push(new Float64Array(payouts.length));
@@ -157,7 +159,8 @@
             team += best;
           }
         }
-        totals[ti] = team;
+        meanScore[ti] += team / sims;
+        totals[ti] = team + (offsets ? offsets[ti] || 0 : 0);
       }
       // Rank (lower is better), split ties.
       for (var o = 0; o < n; o++) order[o] = o;
@@ -190,7 +193,8 @@
         pWin: pw,
         pMoney: pm,
         posProb: Array.prototype.slice.call(posProb[i]),
-        potShare: payShare[i] / sims   // expected fraction of the pot this team collects
+        potShare: payShare[i] / sims,  // expected fraction of the pot this team collects
+        meanScore: meanScore[i]        // expected net total vs par over the simulated rounds (no offset)
       };
     });
     return { teams: out, ranks: ranks, shares: shares, n: n, sims: sims };

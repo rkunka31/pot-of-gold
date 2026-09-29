@@ -243,7 +243,13 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         <label>Unsold team estimate <span class="money"><input type="number" id="sUnsold" min="0" step="50"></span></label>
         <label>House take (%) <input type="number" id="sRake" min="0" max="50" step="1"></label>
         <label class="check wide"><input type="checkbox" id="sAuto"> Estimate unsold teams from the average of what sold teams put in (bids plus buybacks) once 3 have sold</label>
-        <label class="check wide"><input type="checkbox" id="sAssumeBB"> Assume teams buy back 50% (halves your upside; use it for caps)</label>
+        <label class="wide">How the 50% buyback is paid
+          <select id="sBBMode">
+            <option value="match">Team matches the hammer into the pot (pot doubles for that team)</option>
+            <option value="reimburse">Team pays half the hammer back to the auction winner</option>
+          </select>
+        </label>
+        <label class="check wide"><input type="checkbox" id="sAssumeBB"> Assume teams take the buyback when setting caps</label>
         <label class="check wide"><input type="checkbox" id="sUnsoldBB"> Assume unsold teams will buy back when estimating the pot</label>
         <div class="wide">
           <span class="eyebrow">Payout split (%) for 1st to 5th</span>
@@ -259,14 +265,21 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       </div>
     </div>
     <div class="setup-block">
-      <h3>Handicap rules</h3>
+      <h3>Format and handicap rules</h3>
       <div class="form" style="margin-top:8px">
+        <label>Calcutta is scored on
+          <select id="sRounds">
+            <option value="1">Sunday round only (18 holes)</option>
+            <option value="2">Both days (36 holes)</option>
+          </select>
+        </label>
+        <label>Saturday carry-over weight (%) <input type="number" id="sSatW" min="0" max="100" step="5"></label>
         <label>Handicap allowance
           <select id="sAllow">
             <option value="1">100% of course handicap</option>
             <option value="0.95">95%</option>
             <option value="0.9">90%</option>
-            <option value="0.85">85% (WHS four-ball standard)</option>
+            <option value="0.85">85% (event rule)</option>
             <option value="0.8">80%</option>
           </select>
         </label>
@@ -279,14 +292,16 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         </label>
       </div>
       <div class="note">
-        <p><b>Confirm the allowance before auction night.</b> At 100% the model favours the highest combined handicaps with the biggest spread. At 85% it favours pairs built around a 1 to 3 handicap. The ranking flips almost completely between the two.</p>
-        <p>Course handicaps use Greystone's ratings: Blue 72.1/140, Grey 71.2/135, White 70.4/132, Green 69.2/130, par 72. Both rounds are simulated at these tees.</p>
+        <p><b>Event rules:</b> two-man one net best, 85% allowance, Calcutta scored on Sunday only, top 5 owners plus ties paid, a tie for first settled on 18.</p>
+        <p><b>Saturday carry-over.</b> After Round 1, enter each team's Saturday net score on its card. The model shifts that team's expected Sunday score by the weight above times the gap between what it shot and what the model expected. 20% is a reasonable weight for one round of evidence given that some handicaps are soft; 0% ignores Saturday.</p>
+        <p>Course handicaps use Greystone's ratings: Blue 72.1/140, Grey 71.2/135, White 70.4/132, Green 69.2/130, par 72, at the Round 1 tees.</p>
       </div>
       <div class="btn-row"><button class="btn primary" id="recompute">Recompute model</button></div>
     </div>
     <div class="setup-block">
       <h3>Data</h3>
       <p class="small muted" id="syncDetail"></p>
+      <p class="small muted" id="rosterVer"></p>
       <div class="btn-row">
         <button class="btn danger" id="resetBids">Clear all auction entries</button>
         <button class="btn danger" id="resetAll">Reset to tee sheet</button>
@@ -308,6 +323,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
 // Handicap Index from the player roster; tee code from the tee sheet.
 (function (root) {
   var P = function (name, index, tee) { return { name: name, index: index, tee: tee || 'GRY', adj: 0 }; };
+  var ROSTER_VERSION = '2026-09-29 preliminary';
   var TEAMS = [
     { id: 't01', group: '1A', players: [P('Quinn Kerr', 1.0, 'BL'), P('Jamie Janjevich', 10.3)] },
     { id: 't02', group: '1A', players: [P('Jeff Smith', 6.1), P('Tyson MacLean', 14.2)] },
@@ -342,6 +358,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     { id: 't31', group: '10B', players: [P('Al Dairou', 3.9), P('David Buchanan', 10.7, 'WHT')] },
     { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL'), P('Mike Smith', 11.2, 'WHT')] }
   ];
+  TEAMS.version = ROSTER_VERSION;
   if (typeof module !== 'undefined' && module.exports) module.exports = TEAMS;
   else root.POT_TEAMS = TEAMS;
 })(typeof window !== 'undefined' ? window : this);
@@ -448,7 +465,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
 
   // teams: [{players:[{index, tee, adj}], ...}]
-  // settings: {allowance (0-1), sims, rounds, payouts:[shares], seed}
+  // settings: {allowance (0-1), sims, rounds, payouts:[shares], seed, offsets:[strokes per team]}
   // Returns {teams:[{ch:[], ph:[], pWin, pMoney, posProb:[], evShare}], ranks: Uint8Array(sims*n), n, sims}
   function simulate(teams, settings) {
     var allowance = settings.allowance == null ? 1 : settings.allowance;
@@ -474,6 +491,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       });
     });
 
+    var offsets = settings.offsets || null; // strokes added to each team's total (Saturday carry-over)
+    var meanScore = new Float64Array(n);   // mean simulated total before offsets
     var payShare = new Float64Array(n);   // expected share of pot, all positions
     var posProb = [];                      // posProb[i][k] = P(team i finishes in position k+1 (before ties))
     for (var i = 0; i < n; i++) posProb.push(new Float64Array(payouts.length));
@@ -507,7 +526,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
             team += best;
           }
         }
-        totals[ti] = team;
+        meanScore[ti] += team / sims;
+        totals[ti] = team + (offsets ? offsets[ti] || 0 : 0);
       }
       // Rank (lower is better), split ties.
       for (var o = 0; o < n; o++) order[o] = o;
@@ -540,7 +560,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         pWin: pw,
         pMoney: pm,
         posProb: Array.prototype.slice.call(posProb[i]),
-        potShare: payShare[i] / sims   // expected fraction of the pot this team collects
+        potShare: payShare[i] / sims,  // expected fraction of the pot this team collects
+        meanScore: meanScore[i]        // expected net total vs par over the simulated rounds (no offset)
       };
     });
     return { teams: out, ranks: ranks, shares: shares, n: n, sims: sims };
@@ -557,30 +578,38 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   'use strict';
   var M = window.PotModel, BASE = window.POT_TEAMS;
   var LS_KEY = 'pog-board-v1';
-  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, payouts: [45, 25, 15, 10, 5], allowance: 1, sims: 3000 };
+  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'match', payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
   var state, sim = null, simKey = '';
   var ui = { tab: 'board', sort: 'model', filter: 'all', open: {} };
-  var db = null, saveTimer = null, writeChain = Promise.resolve(), pendingRemote = null;
+  var db = null, saveTimer = null, writeChain = Promise.resolve(), rosterChanged = false;
 
   function freshTeam(b) {
     return { id: b.id, group: b.group, mine: !!b.mine,
       players: b.players.map(function (p) { return { name: p.name, index: p.index, tee: p.tee, adj: 0 }; }),
-      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '' };
+      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null };
   }
   function freshState() {
-    return { v: 1, updatedAt: Date.now(), settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
+    return { v: 2, updatedAt: Date.now(), rosterVersion: BASE.version, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
   }
   function migrate(d) {
     var s = freshState();
     if (!d || typeof d !== 'object') return s;
     s.updatedAt = d.updatedAt || 0;
     if (d.settings) for (var k in DEFAULT_SETTINGS) if (d.settings[k] != null) s.settings[k] = d.settings[k];
+    // When the roster file changes (final handicaps), names, indexes and tees come from the new roster;
+    // adjustments and every auction entry are kept.
+    var sameRoster = d.rosterVersion === BASE.version;
+    if (!sameRoster) rosterChanged = true;
     if (Array.isArray(d.teams)) {
       var byId = {}; d.teams.forEach(function (t) { byId[t.id] = t; });
       s.teams = s.teams.map(function (t) {
         var o = byId[t.id]; if (!o) return t;
-        for (var key in t) if (o[key] != null && key !== 'players') t[key] = o[key];
-        if (Array.isArray(o.players)) t.players = t.players.map(function (p, i) { var q = o.players[i] || {}; return { name: q.name != null ? q.name : p.name, index: q.index != null ? Number(q.index) : p.index, tee: q.tee || p.tee, adj: Number(q.adj) || 0 }; });
+        for (var key in t) if (o[key] !== undefined && key !== 'players') t[key] = o[key];
+        if (Array.isArray(o.players)) t.players = t.players.map(function (p, i) {
+          var q = o.players[i] || {};
+          if (!sameRoster) return { name: p.name, index: p.index, tee: p.tee, adj: Number(q.adj) || 0 };
+          return { name: q.name != null ? q.name : p.name, index: q.index != null ? Number(q.index) : p.index, tee: q.tee || p.tee, adj: Number(q.adj) || 0 };
+        });
         return t;
       });
     }
@@ -615,6 +644,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         if ((d.updatedAt || 0) > state.updatedAt) {
           state = migrate(d); saveLocal();
           ensureSim(); renderAll();
+          if (rosterChanged) { rosterChanged = false; touch(); }
         }
         setSync('Synced', 'Synced to your Claude account. Open this page on any device to see the same board.');
       }, function (e) { setSync('Sync off', 'Live sync stopped (' + (e && e.code) + '). Reload to reconnect. Entries stay on this device.'); });
@@ -622,24 +652,50 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
 
   // ---------- model ----------
-  function simFingerprint() {
+  var baseSim = null, baseKey = '';
+  function baseFingerprint() {
     var s = state.settings;
-    return JSON.stringify([s.allowance, s.sims, s.payouts, state.teams.map(function (t) { return t.players.map(function (p) { return [p.index, p.tee, p.adj]; }); })]);
+    return JSON.stringify([s.allowance, s.sims, s.rounds, s.payouts, state.teams.map(function (t) { return t.players.map(function (p) { return [p.index, p.tee, p.adj]; }); })]);
+  }
+  function simFingerprint() {
+    return baseFingerprint() + JSON.stringify([state.settings.satWeight, state.teams.map(function (t) { return t.satNet; })]);
+  }
+  // Saturday carry-over: a team's Saturday net score is evidence about its true strength. The model shifts
+  // the team's expected Calcutta total by satWeight% of the gap between what it shot and what the model expected.
+  function satOffsets() {
+    var s = state.settings, w = (Number(s.satWeight) || 0) / 100, rounds = Number(s.rounds) || 1, any = false;
+    var off = state.teams.map(function (t, i) {
+      if (t.satNet == null || t.satNet === '' || isNaN(Number(t.satNet))) return 0;
+      any = true;
+      var expectedRound = baseSim.teams[i].meanScore / rounds;
+      return w * (Number(t.satNet) - expectedRound) * rounds;
+    });
+    return any && w > 0 ? off : null;
   }
   function ensureSim() {
+    var s = state.settings;
+    var pay = s.payouts.map(function (x) { return (Number(x) || 0) / 100; });
+    var opts = { allowance: Number(s.allowance), sims: Number(s.sims), rounds: Number(s.rounds) || 1, payouts: pay };
+    var bk = baseFingerprint();
+    if (bk !== baseKey || !baseSim) { baseKey = bk; baseSim = M.simulate(state.teams, opts); simKey = ''; }
     var key = simFingerprint();
     if (key === simKey && sim) return;
     simKey = key;
-    var s = state.settings;
-    var pay = s.payouts.map(function (x) { return (Number(x) || 0) / 100; });
-    sim = M.simulate(state.teams, { allowance: Number(s.allowance), sims: Number(s.sims), rounds: 2, payouts: pay });
+    var off = satOffsets();
+    if (!off) { sim = baseSim; return; }
+    opts.offsets = off;
+    sim = M.simulate(state.teams, opts);
   }
 
   // ---------- economics ----------
+  // Money a team adds to the pot. Reserve beats the hammer: the team keeps 100% at the hammer price plus $50.
+  // Buyback: in 'match' mode the team's 50% money goes into the pot (pot doubles for that team);
+  // in 'reimburse' mode it goes to the auction winner and the pot only holds the hammer price.
   function contribution(t, s, avgSold) {
     if (t.sold) {
-      if (t.reserveWon) return Number(t.reserve) || 0;
-      return (Number(t.bid) || 0) * (t.buyback ? 2 : 1);
+      var b = Number(t.bid) || 0;
+      if (t.reserveWon) return b + 50;
+      return b * (t.buyback && s.bbMode === 'match' ? 2 : 1);
     }
     if (s.auto && avgSold != null) return avgSold; // average of what sold teams actually put in, buybacks included
     return (Number(s.unsold) || 0) * (s.unsoldBB ? 2 : 1);
@@ -651,25 +707,31 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     var pot = 0;
     teams.forEach(function (t) { pot += contribution(t, s, avgSold); });
     var netPot = pot * (1 - (Number(s.rake) || 0) / 100);
+    // Bidder break-even as a fraction of fair value. With a matched buyback you pay the hammer for 50%,
+    // so break-even is half of fair. With a reimbursed buyback half your money comes back, so break-even stays at fair.
+    var bbFactor = (s.assumeBB && s.bbMode === 'match') ? 0.5 : 1;
     var rows = teams.map(function (t, i) {
       var r = sim.teams[i];
       var fair = r.potShare * netPot;
-      var bbFactor = s.assumeBB ? 0.5 : 1;
-      var cap = fair * bbFactor * (1 - (Number(s.edge) || 0) / 100);
+      var breakEven = fair * bbFactor;
+      var cap = breakEven * (1 - (Number(s.edge) || 0) / 100);
       var contrib = contribution(t, s, avgSold);
       var implied = pot > 0 ? contrib / pot : 0;
       var own = 0, cost = 0;
       if (t.sold) {
-        var bid = Number(t.bid) || 0;
+        var bid = Number(t.bid) || 0, myIn = Number(t.myIn) || 0;
         if (t.reserveWon) {
-          if (t.mine) { own = 0.5; cost = (Number(t.reserve) || 0) / 2; }
+          if (t.mine) { own = 0.5; cost = (bid + 50) / 2; }
         } else {
-          if (bid > 0 && Number(t.myIn) > 0) { own += (Number(t.myIn) / bid) * (t.buyback ? 0.5 : 1); cost += Number(t.myIn); }
-          if (t.mine && t.buyback) { own += 0.25; cost += bid / 2; }
+          if (bid > 0 && myIn > 0) {
+            own += (myIn / bid) * (t.buyback ? 0.5 : 1);
+            cost += (t.buyback && s.bbMode === 'reimburse') ? myIn / 2 : myIn;
+          }
+          if (t.mine && t.buyback) { own += 0.25; cost += s.bbMode === 'reimburse' ? bid / 4 : bid / 2; }
         }
       }
       var ev = own * fair - cost;
-      return { i: i, t: t, r: r, fair: fair, cap: cap, contrib: contrib, implied: implied, own: own, cost: cost, ev: ev, edge: implied > 0 ? r.potShare / implied - 1 : null };
+      return { i: i, t: t, r: r, fair: fair, breakEven: breakEven, cap: cap, contrib: contrib, implied: implied, own: own, cost: cost, ev: ev, edge: implied > 0 ? r.potShare / implied - 1 : null };
     });
     var totalCost = 0, totalEv = 0, totalPlan = 0;
     rows.forEach(function (x) { totalCost += x.cost; totalEv += x.ev; if (!x.t.sold) totalPlan += Number(x.t.plan) || 0; });
@@ -696,7 +758,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   function verdict(x) {
     var t = x.t;
     if (t.sold) {
-      if (t.reserveWon) return { cls: t.mine ? 'accent' : 'neutral', txt: t.mine ? 'WE KEPT 100%' : 'RESERVED ' + money(t.reserve) };
+      if (t.reserveWon) return { cls: t.mine ? 'accent' : 'neutral', txt: (t.mine ? 'WE KEPT 100% AT ' : 'RESERVED AT ') + money((Number(t.bid) || 0) + 50) };
       if (x.own > 0) return { cls: x.ev >= 0 ? 'good' : 'warn', txt: 'MINE ' + pct(x.own, 0) + ' · EV ' + money(x.ev, true) };
       if (x.edge != null) return { cls: x.edge > 0.15 ? 'good' : x.edge < -0.15 ? 'bad' : 'neutral', txt: 'SOLD ' + money(t.bid) + (x.edge > 0 ? ' · cheap' : ' · rich') };
       return { cls: 'neutral', txt: 'SOLD ' + money(t.bid) };
@@ -704,7 +766,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     var live = Number(t.live) || 0;
     if (live <= 0) return { cls: 'neutral', txt: 'CAP ' + money(x.cap) };
     if (live <= x.cap) return { cls: 'good', txt: 'BID · ' + money(x.cap - live) + ' room' };
-    if (live <= x.fair * (state.settings.assumeBB ? 0.5 : 1)) return { cls: 'warn', txt: 'STRETCH · over cap' };
+    if (live <= x.breakEven) return { cls: 'warn', txt: 'STRETCH · over cap' };
     return { cls: 'bad', txt: 'PASS · over fair' };
   }
 
@@ -743,10 +805,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     }).join('');
     var spread = Math.abs(ph[0] - ph[1]);
     var open = ui.open[t.id] ? ' open' : '';
-    var mineBlock = t.mine ? '<label class="check wide"><input type="checkbox" data-f="buyback" ' + (t.buyback ? 'checked' : '') + '> We bought back 50% (my cost: half the bid)</label>' :
-      '<label class="check"><input type="checkbox" data-f="buyback" ' + (t.buyback ? 'checked' : '') + '> Team bought back 50%</label>';
-    var reserveBlock = '<label>Reserve bid <span class="money"><input type="number" data-f="reserve" step="50" min="0" value="' + (t.reserve || '') + '" placeholder="0"></span></label>' +
-      '<label class="check"><input type="checkbox" data-f="reserveWon" ' + (t.reserveWon ? 'checked' : '') + '> Reserve beat the room (team keeps 100%)</label>';
+    var bbMode = state.settings.bbMode;
+    var mineBlock = t.mine ? '<label class="check wide"><input type="checkbox" data-f="buyback" ' + (t.buyback ? 'checked' : '') + '> We took the 50% buyback (my cost: ' + (bbMode === 'reimburse' ? 'a quarter' : 'half') + ' of the hammer)</label>' :
+      '<label class="check"><input type="checkbox" data-f="buyback" ' + (t.buyback ? 'checked' : '') + '> Team took the 50% buyback</label>';
+    var reserveHint = t.mine ? '<div class="small muted wide" style="margin-top:-2px">Suggested reserve ' + money(x.fair * (1 - (Number(state.settings.edge) || 0) / 100)) + ' (fair value less target edge). If the hammer lands below it you keep 100% at hammer + $50.</div>' : '';
+    var reserveBlock = '<label>' + (t.mine ? 'Our sealed reserve' : 'Their reserve (if known)') + ' <span class="money"><input type="number" data-f="reserve" step="50" min="0" value="' + (t.reserve || '') + '" placeholder="0"></span></label>' +
+      '<label class="check"><input type="checkbox" data-f="reserveWon" ' + (t.reserveWon ? 'checked' : '') + '> Reserve beat the hammer (team keeps 100% at hammer + $50)</label>' + reserveHint;
+    var satBlock = '<label>Saturday net (vs par) <input type="number" data-f="satNet" step="1" value="' + (t.satNet == null ? '' : t.satNet) + '" placeholder="e.g. -8"></label>' +
+      '<div class="small muted" style="align-self:end;padding-bottom:10px">Model expected ' + (r.meanScore / (Number(state.settings.rounds) || 1) >= 0 ? '+' : '') + (r.meanScore / (Number(state.settings.rounds) || 1)).toFixed(1) + ' per round' + (t.satNet != null && t.satNet !== '' ? ' · carry-over applied' : '') + '</div>';
     var myInBlock = t.mine ? '' : '<label>My $ in the winning bid <span class="money"><input type="number" data-f="myIn" step="50" min="0" value="' + (t.myIn || '') + '" placeholder="0"></span></label>';
     var market = t.sold && x.edge != null ? '<span><span class="k">Market share</span> ' + pct(x.implied) + ' vs model ' + pct(r.potShare) + ' <b>(' + (x.edge > 0 ? '+' : '') + Math.round(x.edge * 100) + '%)</b></span>' : '';
     var stake = x.own > 0 ? '<span><span class="k">My stake</span> ' + pct(x.own, 0) + ' for ' + money(x.cost) + ' · EV <b>' + money(x.ev, true) + '</b></span>' : '';
@@ -757,14 +823,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         '<div><span class="eyebrow">Win</span><span class="v num">' + pct(r.pWin) + '</span></div>' +
         '<div><span class="eyebrow">Top 5</span><span class="v num">' + pct(r.pMoney) + '</span></div>' +
         '<div><span class="eyebrow">Fair (100%)</span><span class="v num">' + money(x.fair) + '</span></div>' +
-        '<div><span class="eyebrow">Cap</span><span class="v num">' + money(x.cap) + '</span></div>' +
+        '<div><span class="eyebrow">Cap' + (x.breakEven < x.fair ? ' (½ fair less edge)' : ' (fair less edge)') + '</span><span class="v num">' + money(x.cap) + '</span></div>' +
       '</div>' +
       '<div class="inputs">' +
         (t.sold ? '' : '<label>Live high bid <span class="money"><input type="number" data-f="live" step="50" min="0" value="' + (t.live || '') + '" placeholder="0"></span></label>') +
         (t.sold ? '' : '<label>My plan <span class="money"><input type="number" data-f="plan" step="50" min="0" value="' + (t.plan || '') + '" placeholder="0"></span></label>') +
         '<label>Sold for <span class="money"><input type="number" data-f="bid" step="50" min="0" value="' + (t.bid || '') + '" placeholder="0"></span></label>' +
         '<label class="check"><input type="checkbox" data-f="sold" ' + (t.sold ? 'checked' : '') + '> Sold (hammer down)</label>' +
-        mineBlock + myInBlock + reserveBlock +
+        mineBlock + myInBlock + reserveBlock + satBlock +
       '</div>' +
       '<div class="verdict"><span><span class="k">Combined</span> ' + (ph[0] + ph[1]) + ' strokes · spread ' + spread + '</span>' + market + stake + '</div>' +
       '<details' + open + ' data-id="' + t.id + '"><summary>Edit players / note</summary>' +
@@ -802,7 +868,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     var plans = e.rows.filter(function (x) { return !x.t.sold && Number(x.t.plan) > 0; }).sort(function (a, b) { return Number(b.t.plan) - Number(a.t.plan); });
     var pb = document.querySelector('#planTable tbody');
     pb.innerHTML = plans.map(function (x) {
-      var p = Number(x.t.plan), st = p <= x.cap ? '<span class="pill good">inside cap</span>' : p <= x.fair * (state.settings.assumeBB ? 0.5 : 1) ? '<span class="pill warn">over cap</span>' : '<span class="pill bad">over fair</span>';
+      var p = Number(x.t.plan), st = p <= x.cap ? '<span class="pill good">inside cap</span>' : p <= x.breakEven ? '<span class="pill warn">over cap</span>' : '<span class="pill bad">over fair</span>';
       return '<tr><td>' + esc(teamLabel(x.t)) + '</td><td class="r num">' + money(p) + '</td><td class="r num">' + money(x.cap) + '</td><td class="r num">' + money(x.fair) + '</td><td>' + st + '</td></tr>';
     }).join('') + (plans.length ? '<tr class="total"><td>Planned</td><td class="r num">' + money(e.totalPlan) + '</td><td colspan="3" class="muted">' + (e.totalCost + e.totalPlan > state.settings.budget ? 'Plans plus committed money exceed the budget by ' + money(e.totalCost + e.totalPlan - state.settings.budget) : money(state.settings.budget - e.totalCost - e.totalPlan) + ' unallocated') + '</td></tr>' : '<tr><td colspan="5" class="muted">No plans yet. Add a plan amount on any unsold team card.</td></tr>');
   }
@@ -830,6 +896,10 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     document.getElementById('sRake').value = s.rake;
     document.getElementById('sAuto').checked = !!s.auto;
     document.getElementById('sAssumeBB').checked = !!s.assumeBB;
+    document.getElementById('sBBMode').value = s.bbMode || 'match';
+    document.getElementById('sRounds').value = String(s.rounds || 1);
+    document.getElementById('sSatW').value = s.satWeight;
+    document.getElementById('rosterVer').textContent = 'Roster: ' + BASE.version + '. When the final handicaps arrive the roster is replaced and every auction entry is kept.';
     document.getElementById('sUnsoldBB').checked = !!s.unsoldBB;
     for (var i = 0; i < 5; i++) document.getElementById('p' + i).value = s.payouts[i];
     var sum = s.payouts.reduce(function (a, b) { return a + (Number(b) || 0); }, 0);
@@ -863,6 +933,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       t[f] = el.checked;
       if (f === 'sold' && el.checked && !(Number(t.bid) > 0) && Number(t.live) > 0) t.bid = Number(t.live);
     } else if (f === 'note') t.note = el.value;
+    else if (f === 'satNet') { var sv = parseFloat(el.value); t.satNet = isNaN(sv) ? null : sv; resim = true; }
     else { var v = parseFloat(el.value); t[f] = isNaN(v) ? 0 : v; }
     touch();
     if (resim) { if (!commit) return; ensureSim(); }
@@ -900,6 +971,9 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     s.rake = Number(document.getElementById('sRake').value) || 0;
     s.auto = document.getElementById('sAuto').checked;
     s.assumeBB = document.getElementById('sAssumeBB').checked;
+    s.bbMode = document.getElementById('sBBMode').value;
+    var rounds = Number(document.getElementById('sRounds').value) || 1; if (rounds !== Number(s.rounds)) { s.rounds = rounds; resim = true; }
+    var satW = Number(document.getElementById('sSatW').value) || 0; if (satW !== Number(s.satWeight)) { s.satWeight = satW; resim = true; }
     s.unsoldBB = document.getElementById('sUnsoldBB').checked;
     var pay = []; for (var i = 0; i < 5; i++) pay.push(Number(document.getElementById('p' + i).value) || 0);
     if (JSON.stringify(pay) !== JSON.stringify(s.payouts)) { s.payouts = pay; resim = true; }
@@ -909,8 +983,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     if (resim) ensureSim();
     renderAll();
   }
-  document.getElementById('tab-setup').addEventListener('change', function (ev) { if (ev.target.closest('.form') || ev.target.id === 'sAllow' || ev.target.id === 'sSims') readSetup(); });
-  document.getElementById('recompute').addEventListener('click', function () { simKey = ''; ensureSim(); renderAll(); });
+  document.getElementById('tab-setup').addEventListener('change', function (ev) { if (ev.target.closest('.form')) readSetup(); });
+  document.getElementById('recompute').addEventListener('click', function () { simKey = ''; baseKey = ''; ensureSim(); renderAll(); });
 
   function confirmBox(msg, onYes) {
     var box = document.getElementById('confirmBox');
@@ -921,8 +995,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
   document.getElementById('resetBids').addEventListener('click', function () {
     confirmBox('Clear every price, buyback, reserve, plan and note on all 32 teams? Player edits and settings stay.', function () {
-      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; });
-      touch(); renderAll();
+      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; });
+      touch(); ensureSim(); renderAll();
     });
   });
   document.getElementById('resetAll').addEventListener('click', function () {
@@ -934,6 +1008,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   // ---------- boot ----------
   try { var u = JSON.parse(localStorage.getItem('pog-ui') || 'null'); if (u && u.sort) { ui.sort = u.sort; document.getElementById('sort').value = ui.sort; } } catch (e) {}
   state = loadLocal() || freshState();
+  if (rosterChanged) { rosterChanged = false; state.updatedAt = Date.now(); saveLocal(); }
   setSync('Computing');
   setTimeout(function () {
     ensureSim();
