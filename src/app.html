@@ -204,7 +204,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     </div>
     <div class="table-wrap">
       <table id="betsTable">
-        <thead><tr><th>Team</th><th class="r">Cost</th><th class="r">Own</th><th class="r">Fair</th><th class="r">EV</th><th class="r">Win</th></tr></thead>
+        <thead><tr><th>Team</th><th class="r">Net cost</th><th class="r">Own</th><th class="r">Sold on</th><th class="r">Fair</th><th class="r">EV</th><th class="r">Win</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -221,10 +221,10 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         <tbody></tbody>
       </table>
     </div>
-    <p class="small muted" style="margin-top:12px">Hammer-by-hammer at the current pot estimate:</p>
+    <p class="small muted" style="margin-top:12px">Hammer-by-hammer at the current pot estimate. The last column is the hedge: keep 100% via the reserve, then sell half to the under-bidder at half the hammer. That recreates the 50% buyback position for an extra $50, but on your terms.</p>
     <div class="table-wrap">
       <table id="resvTable">
-        <thead><tr><th class="r">Hammer</th><th>Outcome</th><th class="r">Own</th><th class="r">Each pays</th><th class="r">EV (mine)</th></tr></thead>
+        <thead><tr><th class="r">Hammer</th><th>Outcome</th><th class="r">Own</th><th class="r">Each pays</th><th class="r">EV (mine)</th><th class="r">Then sell 50% at ½ hammer: each pays / EV</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -355,7 +355,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   function freshTeam(b) {
     return { id: b.id, group: b.group, mine: !!b.mine,
       players: b.players.map(function (p) { return { name: p.name, index: p.index, tee: p.tee, adj: 0 }; }),
-      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null };
+      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null, resaleFrac: 0, resaleAmt: 0 };
   }
   function freshState() {
     return { v: 2, updatedAt: Date.now(), rosterVersion: BASE.version, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
@@ -500,11 +500,15 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
           if (t.mine && t.buyback) { own += 0.25; cost += s.bbMode === 'reimburse' ? bid / 4 : bid / 2; }
         }
       }
+      // Resale: part of my stake sold on to other players after the auction.
+      var grossOwn = own, grossCost = cost, resaleFrac = t.sold ? Math.min(own, (Number(t.resaleFrac) || 0) / 100) : 0, resaleAmt = t.sold ? Number(t.resaleAmt) || 0 : 0;
+      own -= resaleFrac; cost -= resaleAmt;
       var ev = own * fair - cost;
-      return { i: i, t: t, r: r, fair: fair, breakEven: breakEven, cap: cap, contrib: contrib, implied: implied, own: own, cost: cost, ev: ev, edge: implied > 0 ? r.potShare / implied - 1 : null };
+      return { i: i, t: t, r: r, fair: fair, breakEven: breakEven, cap: cap, contrib: contrib, implied: implied, own: own, cost: cost, ev: ev,
+        grossOwn: grossOwn, grossCost: grossCost, resaleFrac: resaleFrac, resaleAmt: resaleAmt, edge: implied > 0 ? r.potShare / implied - 1 : null };
     });
-    var totalCost = 0, totalEv = 0, totalPlan = 0;
-    rows.forEach(function (x) { totalCost += x.cost; totalEv += x.ev; if (!x.t.sold) totalPlan += Number(x.t.plan) || 0; });
+    var totalCost = 0, totalEv = 0, totalPlan = 0, totalResale = 0;
+    rows.forEach(function (x) { totalCost += x.cost; totalEv += x.ev; totalResale += x.resaleAmt; if (!x.t.sold) totalPlan += Number(x.t.plan) || 0; });
     // Outcome distribution of my net result from the simulation.
     var n = sim.n, sims = sim.sims, nets = new Float64Array(sims), profit = 0;
     for (var k = 0; k < sims; k++) {
@@ -513,7 +517,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       nets[k] = ret - totalCost; if (nets[k] > 0) profit++;
     }
     var sorted = Array.prototype.slice.call(nets).sort(function (a, b) { return a - b; });
-    return { pot: pot, netPot: netPot, avgSold: avgSold, rows: rows, totalCost: totalCost, totalEv: totalEv, totalPlan: totalPlan,
+    return { pot: pot, netPot: netPot, avgSold: avgSold, rows: rows, totalCost: totalCost, totalEv: totalEv, totalPlan: totalPlan, totalResale: totalResale,
       pProfit: totalCost > 0 ? profit / sims : 0, p10: sorted[Math.floor(sims * 0.1)] || 0, p50: sorted[Math.floor(sims * 0.5)] || 0, p90: sorted[Math.floor(sims * 0.9)] || 0 };
   }
 
@@ -585,7 +589,11 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       '<div class="small muted" style="align-self:end;padding-bottom:10px">Model expected ' + (r.meanScore / (Number(state.settings.rounds) || 1) >= 0 ? '+' : '') + (r.meanScore / (Number(state.settings.rounds) || 1)).toFixed(1) + ' per round' + (t.satNet != null && t.satNet !== '' ? ' · carry-over applied' : '') + '</div>';
     var myInBlock = t.mine ? '' : '<label>My $ in the winning bid <span class="money"><input type="number" data-f="myIn" step="50" min="0" value="' + (t.myIn || '') + '" placeholder="0"></span></label>';
     var market = t.sold && x.edge != null ? '<span><span class="k">Market share</span> ' + pct(x.implied) + ' vs model ' + pct(r.potShare) + ' <b>(' + (x.edge > 0 ? '+' : '') + Math.round(x.edge * 100) + '%)</b></span>' : '';
-    var stake = x.own > 0 ? '<span><span class="k">My stake</span> ' + pct(x.own, 0) + ' for ' + money(x.cost) + ' · EV <b>' + money(x.ev, true) + '</b></span>' : '';
+    var stake = x.grossOwn > 0 ? '<span><span class="k">My stake</span> ' + pct(x.own, 0) + ' for ' + money(x.cost) + (x.resaleFrac > 0 ? ' after selling ' + pct(x.resaleFrac, 0) + ' for ' + money(x.resaleAmt) : '') + ' · EV <b>' + money(x.ev, true) + '</b></span>' : '';
+    var showResale = t.mine || Number(t.myIn) > 0;
+    var resaleBlock = showResale ? '<label>My share sold on (% of team) <input type="number" data-f="resaleFrac" step="5" min="0" max="100" value="' + (t.resaleFrac || '') + '" placeholder="0"></label>' +
+      '<label>I received <span class="money"><input type="number" data-f="resaleAmt" step="50" min="0" value="' + (t.resaleAmt || '') + '" placeholder="0"></span></label>' +
+      (x.grossOwn > 0 ? '<div class="small muted wide" style="margin-top:-2px">' + (t.mine ? 'Enter your half: if the team sells 50% for $1,000, that is 25% and $500 here. ' : '') + 'Fair price for a slice of the team: 25% = ' + money(0.25 * x.fair) + ', 50% = ' + money(0.5 * x.fair) + '. Selling at fair returns cash and leaves EV unchanged; selling above fair adds EV. You hold ' + pct(x.grossOwn, 0) + ' at ' + money(x.grossCost) + '; selling half of that at fair (' + money(0.5 * x.grossOwn * x.fair) + ') leaves ' + money(x.grossCost - 0.5 * x.grossOwn * x.fair) + ' at risk for ' + pct(0.5 * x.grossOwn, 0) + '.</div>' : '') : '';
     return '<article class="card' + (t.mine ? ' mine' : '') + (t.sold ? ' sold' : '') + '" data-id="' + t.id + '">' +
       '<div class="card-head"><span class="rank">#' + x.rank + '</span><div class="tname">' + esc(teamLabel(t)) + '<small>' + esc(t.group) + (t.mine ? ' · my team' : '') + '</small></div><span class="pill ' + v.cls + '">' + esc(v.txt) + '</span></div>' +
       '<div class="players">' + playersHtml + '</div>' +
@@ -600,7 +608,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         (t.sold ? '' : '<label>My plan <span class="money"><input type="number" data-f="plan" step="50" min="0" value="' + (t.plan || '') + '" placeholder="0"></span></label>') +
         '<label>Sold for <span class="money"><input type="number" data-f="bid" step="50" min="0" value="' + (t.bid || '') + '" placeholder="0"></span></label>' +
         '<label class="check"><input type="checkbox" data-f="sold" ' + (t.sold ? 'checked' : '') + '> Sold (hammer down)</label>' +
-        mineBlock + myInBlock + reserveBlock + satBlock +
+        mineBlock + myInBlock + reserveBlock + resaleBlock + satBlock +
       '</div>' +
       '<div class="verdict"><span><span class="k">Combined</span> ' + (ph[0] + ph[1]) + ' strokes · spread ' + spread + '</span>' + market + stake + '</div>' +
       '<details' + open + ' data-id="' + t.id + '"><summary>Edit players / note</summary>' +
@@ -632,17 +640,17 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
 
   function renderBets(e) {
-    document.getElementById('bSpent').textContent = money(e.totalCost);
+    document.getElementById('bSpent').textContent = money(e.totalCost) + (e.totalResale ? ' net' : '');
     document.getElementById('bLeft').textContent = money(Math.max(0, state.settings.budget - e.totalCost)) + ' left of ' + money(state.settings.budget) + (e.totalPlan ? ' · ' + money(e.totalPlan) + ' still planned' : '');
     var ev = document.getElementById('bEv'); ev.textContent = money(e.totalEv, true); ev.className = 'v num ' + (e.totalEv > 0 ? 'pos' : e.totalEv < 0 ? 'neg' : '');
     document.getElementById('bRet').textContent = e.totalCost > 0 ? 'expected return ' + money(e.totalCost + e.totalEv) + ' on ' + money(e.totalCost) : 'no money committed yet';
     document.getElementById('bProb').textContent = pct(e.pProfit, 0);
     document.getElementById('bRange').textContent = e.totalCost > 0 ? money(e.p10, true) + ' to ' + money(e.p90, true) : '$0';
-    var mine = e.rows.filter(function (x) { return x.own > 0 || x.cost > 0; });
+    var mine = e.rows.filter(function (x) { return x.grossOwn > 0 || x.grossCost > 0; });
     var tb = document.querySelector('#betsTable tbody');
     tb.innerHTML = mine.map(function (x) {
-      return '<tr><td>' + esc(teamLabel(x.t)) + (x.t.mine ? ' <span class="pill accent">mine</span>' : '') + '</td><td class="r num">' + money(x.cost) + '</td><td class="r num">' + pct(x.own, 0) + '</td><td class="r num">' + money(x.own * x.fair) + '</td><td class="r num">' + money(x.ev, true) + '</td><td class="r num">' + pct(x.r.pWin) + '</td></tr>';
-    }).join('') + (mine.length ? '<tr class="total"><td>Total</td><td class="r num">' + money(e.totalCost) + '</td><td></td><td class="r num">' + money(e.totalCost + e.totalEv) + '</td><td class="r num">' + money(e.totalEv, true) + '</td><td></td></tr>' : '<tr><td colspan="6" class="muted">Nothing owned yet. Mark a team sold and enter your dollars in the winning bid, or tick the buyback on your own team.</td></tr>');
+      return '<tr><td>' + esc(teamLabel(x.t)) + (x.t.mine ? ' <span class="pill accent">mine</span>' : '') + '</td><td class="r num">' + money(x.cost) + '</td><td class="r num">' + pct(x.own, 0) + '</td><td class="r num">' + (x.resaleFrac > 0 ? pct(x.resaleFrac, 0) + ' / ' + money(x.resaleAmt) : '') + '</td><td class="r num">' + money(x.own * x.fair) + '</td><td class="r num">' + money(x.ev, true) + '</td><td class="r num">' + pct(x.r.pWin) + '</td></tr>';
+    }).join('') + (mine.length ? '<tr class="total"><td>Total</td><td class="r num">' + money(e.totalCost) + '</td><td></td><td class="r num">' + (e.totalResale ? money(e.totalResale) : '') + '</td><td class="r num">' + money(e.totalCost + e.totalEv) + '</td><td class="r num">' + money(e.totalEv, true) + '</td><td></td></tr>' : '<tr><td colspan="7" class="muted">Nothing owned yet. Mark a team sold and enter your dollars in the winning bid, or tick the buyback on your own team.</td></tr>');
     renderReserve(e);
     var plans = e.rows.filter(function (x) { return !x.t.sold && Number(x.t.plan) > 0; }).sort(function (a, b) { return Number(b.t.plan) - Number(a.t.plan); });
     var pb = document.querySelector('#planTable tbody');
@@ -688,7 +696,9 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         else { own = 0; each = 0; ev = 0; outcome = 'Decline 50% (' + money(bbCost) + ' is over value)'; }
       }
       var cls = ev > 0 ? 'good' : ev < 0 ? 'bad' : 'neutral';
-      rows.push('<tr><td class="r num">' + money(b) + (b === R ? ' <span class="pill accent">reserve</span>' : '') + '</td><td>' + outcome + '</td><td class="r num">' + pct(own, 0) + '</td><td class="r num">' + money(each) + '</td><td class="r num"><span class="pill ' + cls + '">' + money(ev / 2, true) + '</span></td></tr>');
+      var hedge = '';
+      if (own === 1) { var hEach = (b + 50 - b / 2) / 2, hEv = 0.5 * V - (b + 50 - b / 2); hedge = money(hEach) + ' / <span class="pill ' + (hEv > 0 ? 'good' : hEv < 0 ? 'bad' : 'neutral') + '">' + money(hEv / 2, true) + '</span>'; }
+      rows.push('<tr><td class="r num">' + money(b) + (b === R ? ' <span class="pill accent">reserve</span>' : '') + '</td><td>' + outcome + '</td><td class="r num">' + pct(own, 0) + '</td><td class="r num">' + money(each) + '</td><td class="r num"><span class="pill ' + cls + '">' + money(ev / 2, true) + '</span></td><td class="r num">' + hedge + '</td></tr>');
     });
     tb.innerHTML = rows.join('');
   }
@@ -823,7 +833,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
   document.getElementById('resetBids').addEventListener('click', function () {
     confirmBox('Clear every price, buyback, reserve, plan and note on all 32 teams? Player edits and settings stay.', function () {
-      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; });
+      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; t.resaleFrac = 0; t.resaleAmt = 0; });
       touch(); ensureSim(); renderAll();
     });
   });
