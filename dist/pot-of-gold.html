@@ -207,6 +207,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         <tbody></tbody>
       </table>
     </div>
+    <h3 style="margin-top:18px">My team: reserve scenarios</h3>
+    <p class="small muted" id="resvIntro"></p>
+    <div class="table-wrap">
+      <table id="resvTable">
+        <thead><tr><th class="r">Hammer</th><th>Outcome</th><th class="r">Own</th><th class="r">Each pays</th><th class="r">EV (mine)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <h3 style="margin-top:18px">Planned bids</h3>
     <p class="small muted">Plan amounts are what you intend to put in before a team goes up. Actual cost only counts once a team is marked sold.</p>
     <div class="table-wrap">
@@ -578,7 +586,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   'use strict';
   var M = window.PotModel, BASE = window.POT_TEAMS;
   var LS_KEY = 'pog-board-v1';
-  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'match', payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
+  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'reimburse', payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
   var state, sim = null, simKey = '';
   var ui = { tab: 'board', sort: 'model', filter: 'all', open: {} };
   var db = null, saveTimer = null, writeChain = Promise.resolve(), rosterChanged = false;
@@ -847,10 +855,18 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     '</article>';
   }
 
+  var rendering = false, renderTimer = null;
   function renderBoard(e) {
     var rows = sortedRows(e);
     var host = document.getElementById('cards');
-    host.innerHTML = rows.map(cardHtml).join('') || '<p class="muted">No teams match this filter.</p>';
+    rendering = true;
+    try { host.innerHTML = rows.map(cardHtml).join('') || '<p class="muted">No teams match this filter.</p>'; }
+    finally { rendering = false; }
+  }
+  // Re-render on the next tick so a change event and the tap that caused it both land on the same DOM.
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(function () { renderTimer = null; renderAll(); }, 0);
   }
 
   function renderBets(e) {
@@ -865,12 +881,40 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     tb.innerHTML = mine.map(function (x) {
       return '<tr><td>' + esc(teamLabel(x.t)) + (x.t.mine ? ' <span class="pill accent">mine</span>' : '') + '</td><td class="r num">' + money(x.cost) + '</td><td class="r num">' + pct(x.own, 0) + '</td><td class="r num">' + money(x.own * x.fair) + '</td><td class="r num">' + money(x.ev, true) + '</td><td class="r num">' + pct(x.r.pWin) + '</td></tr>';
     }).join('') + (mine.length ? '<tr class="total"><td>Total</td><td class="r num">' + money(e.totalCost) + '</td><td></td><td class="r num">' + money(e.totalCost + e.totalEv) + '</td><td class="r num">' + money(e.totalEv, true) + '</td><td></td></tr>' : '<tr><td colspan="6" class="muted">Nothing owned yet. Mark a team sold and enter your dollars in the winning bid, or tick the buyback on your own team.</td></tr>');
+    renderReserve(e);
     var plans = e.rows.filter(function (x) { return !x.t.sold && Number(x.t.plan) > 0; }).sort(function (a, b) { return Number(b.t.plan) - Number(a.t.plan); });
     var pb = document.querySelector('#planTable tbody');
     pb.innerHTML = plans.map(function (x) {
       var p = Number(x.t.plan), st = p <= x.cap ? '<span class="pill good">inside cap</span>' : p <= x.breakEven ? '<span class="pill warn">over cap</span>' : '<span class="pill bad">over fair</span>';
       return '<tr><td>' + esc(teamLabel(x.t)) + '</td><td class="r num">' + money(p) + '</td><td class="r num">' + money(x.cap) + '</td><td class="r num">' + money(x.fair) + '</td><td>' + st + '</td></tr>';
     }).join('') + (plans.length ? '<tr class="total"><td>Planned</td><td class="r num">' + money(e.totalPlan) + '</td><td colspan="3" class="muted">' + (e.totalCost + e.totalPlan > state.settings.budget ? 'Plans plus committed money exceed the budget by ' + money(e.totalCost + e.totalPlan - state.settings.budget) : money(state.settings.budget - e.totalCost - e.totalPlan) + ' unallocated') + '</td></tr>' : '<tr><td colspan="5" class="muted">No plans yet. Add a plan amount on any unsold team card.</td></tr>');
+  }
+
+  // What happens to my team at each hammer price, given my sealed reserve and the current fair value.
+  // Below the reserve: we keep 100% at hammer + $50. At or above it: we are offered 50% at half the hammer
+  // (reimburse mode) or for a matching amount into the pot (match mode); we take it only when it pays.
+  function renderReserve(e) {
+    var mine = e.rows.filter(function (x) { return x.t.mine; })[0];
+    var intro = document.getElementById('resvIntro'), tb = document.querySelector('#resvTable tbody');
+    if (!mine) { intro.textContent = 'No team is marked as mine.'; tb.innerHTML = ''; return; }
+    var s = state.settings, V = mine.fair, R = Number(mine.t.reserve) || 0, reimburse = s.bbMode !== 'match';
+    var bestR = Math.max(0, Math.round((V - 50) / 50) * 50);
+    intro.innerHTML = 'Fair value of 100% of ' + esc(teamLabel(mine.t)) + ' is <b>' + money(V) + '</b> at the current pot estimate (' + money(e.pot) + '). Your reserve is <b>' + (R ? money(R) : 'not set') + '</b>. The reserve that maximises expected value is fair value less $50, about <b>' + money(bestR) + '</b> (each partner\'s worst case ' + money(bestR / 2 + 25) + '). Above that, every extra dollar of reserve only adds hammer prices at which you are forced to overpay.';
+    var rows = [], prices = [];
+    for (var b = 500; b <= 4000; b += 250) prices.push(b);
+    if (R > 0 && prices.indexOf(R) < 0) { prices.push(R); prices.sort(function (a, c) { return a - c; }); }
+    prices.forEach(function (b) {
+      var own, each, ev, outcome;
+      if (R > 0 && b < R) { own = 1; each = (b + 50) / 2; ev = V - b - 50; outcome = 'Keep 100% at ' + money(b + 50); }
+      else {
+        var bbCost = reimburse ? b / 2 : b, bbEv = 0.5 * V - bbCost;
+        if (bbEv > 0) { own = 0.5; each = bbCost / 2; ev = bbEv; outcome = 'Take 50% for ' + money(bbCost); }
+        else { own = 0; each = 0; ev = 0; outcome = 'Decline 50% (' + money(bbCost) + ' is over value)'; }
+      }
+      var cls = ev > 0 ? 'good' : ev < 0 ? 'bad' : 'neutral';
+      rows.push('<tr><td class="r num">' + money(b) + (b === R ? ' <span class="pill accent">reserve</span>' : '') + '</td><td>' + outcome + '</td><td class="r num">' + pct(own, 0) + '</td><td class="r num">' + money(each) + '</td><td class="r num"><span class="pill ' + cls + '">' + money(ev / 2, true) + '</span></td></tr>');
+    });
+    tb.innerHTML = rows.join('');
   }
 
   function renderCharts(e) {
@@ -920,6 +964,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   // ---------- events ----------
   function findTeam(id) { for (var i = 0; i < state.teams.length; i++) if (state.teams[i].id === id) return state.teams[i]; return null; }
   function onCardInput(ev, commit) {
+    if (rendering) return; // change fired by an input being replaced mid-render
     var el = ev.target, card = el.closest('.card'); if (!card) return;
     var t = findTeam(card.dataset.id); if (!t) return;
     var f = el.dataset.f; if (!f) return;
@@ -938,7 +983,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     touch();
     if (resim) { if (!commit) return; ensureSim(); }
     // Checkbox and select edits re-render the card; typing only refreshes numbers on commit.
-    if (el.type === 'checkbox' || el.tagName === 'SELECT' || commit) renderAll(); else renderHeader(econ());
+    if (el.type === 'checkbox' || el.tagName === 'SELECT' || commit) scheduleRender(); else renderHeader(econ());
   }
   var cards = document.getElementById('cards');
   cards.addEventListener('input', function (ev) { if (ev.target.type === 'checkbox' || ev.target.tagName === 'SELECT') return; onCardInput(ev, false); });
