@@ -85,6 +85,7 @@ section[hidden] { display: none !important; }
 .tname { font-family: var(--font-display); font-size: 20px; font-weight: 600; flex: 1; min-width: 0; line-height: 1.1; }
 .tname small { font-family: var(--font-body); font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 6px; }
 .pill { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 4px 10px; white-space: nowrap; letter-spacing: 0.03em; }
+td .pill { white-space: normal; display: inline-block; line-height: 1.3; }
 .pill.good { background: var(--good-soft); color: var(--good); }
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .pill.bad { background: var(--bad-soft); color: var(--bad); }
@@ -208,7 +209,19 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       </table>
     </div>
     <h3 style="margin-top:18px">My team: reserve scenarios</h3>
+    <div class="form" style="margin:8px 0 10px">
+      <label>Expected average hammer price <span class="money"><input type="number" id="rAvg" min="0" step="100"></span></label>
+      <label>Our sealed reserve <span class="money"><input type="number" id="rRes" min="0" step="50"></span></label>
+      <div class="small muted wide" id="rPot"></div>
+    </div>
     <p class="small muted" id="resvIntro"></p>
+    <div class="table-wrap">
+      <table id="potTable">
+        <thead><tr><th class="r">Avg price</th><th class="r">Pot</th><th class="r">Fair (100%)</th><th>With your reserve</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="small muted" style="margin-top:12px">Hammer-by-hammer at the current pot estimate:</p>
     <div class="table-wrap">
       <table id="resvTable">
         <thead><tr><th class="r">Hammer</th><th>Outcome</th><th class="r">Own</th><th class="r">Each pays</th><th class="r">EV (mine)</th></tr></thead>
@@ -248,7 +261,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       <div class="form" style="margin-top:8px">
         <label>Total budget <span class="money"><input type="number" id="sBudget" min="0" step="50"></span></label>
         <label>Target edge (%) <input type="number" id="sEdge" min="0" max="80" step="5"></label>
-        <label>Unsold team estimate <span class="money"><input type="number" id="sUnsold" min="0" step="50"></span></label>
+        <label>Expected average hammer price <span class="money"><input type="number" id="sUnsold" min="0" step="50"></span></label>
+        <label>Pot override (0 = off) <span class="money"><input type="number" id="sPotOverride" min="0" step="1000"></span></label>
         <label>House take (%) <input type="number" id="sRake" min="0" max="50" step="1"></label>
         <label class="check wide"><input type="checkbox" id="sAuto"> Estimate unsold teams from the average of what sold teams put in (bids plus buybacks) once 3 have sold</label>
         <label class="wide">How the 50% buyback is paid
@@ -586,7 +600,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   'use strict';
   var M = window.PotModel, BASE = window.POT_TEAMS;
   var LS_KEY = 'pog-board-v1';
-  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'reimburse', payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
+  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'reimburse', potOverride: 0, payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
   var state, sim = null, simKey = '';
   var ui = { tab: 'board', sort: 'model', filter: 'all', open: {} };
   var db = null, saveTimer = null, writeChain = Promise.resolve(), rosterChanged = false;
@@ -714,6 +728,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     var avgSold = soldC.length >= 3 ? soldC.reduce(function (a, b) { return a + b; }, 0) / soldC.length : null;
     var pot = 0;
     teams.forEach(function (t) { pot += contribution(t, s, avgSold); });
+    if (Number(s.potOverride) > 0) pot = Number(s.potOverride);
     var netPot = pot * (1 - (Number(s.rake) || 0) / 100);
     // Bidder break-even as a fraction of fair value. With a matched buyback you pay the hammer for 50%,
     // so break-even is half of fair. With a reimbursed buyback half your money comes back, so break-even stays at fair.
@@ -899,7 +914,21 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     if (!mine) { intro.textContent = 'No team is marked as mine.'; tb.innerHTML = ''; return; }
     var s = state.settings, V = mine.fair, R = Number(mine.t.reserve) || 0, reimburse = s.bbMode !== 'match';
     var bestR = Math.max(0, Math.round((V - 50) / 50) * 50);
-    intro.innerHTML = 'Fair value of 100% of ' + esc(teamLabel(mine.t)) + ' is <b>' + money(V) + '</b> at the current pot estimate (' + money(e.pot) + '). Your reserve is <b>' + (R ? money(R) : 'not set') + '</b>. The reserve that maximises expected value is fair value less $50, about <b>' + money(bestR) + '</b> (each partner\'s worst case ' + money(bestR / 2 + 25) + '). Above that, every extra dollar of reserve only adds hammer prices at which you are forced to overpay.';
+    var avgEl = document.getElementById('rAvg'), resEl = document.getElementById('rRes');
+    if (document.activeElement !== avgEl) avgEl.value = s.unsold;
+    if (document.activeElement !== resEl) resEl.value = R || '';
+    document.getElementById('rPot').textContent = 'Pot estimate ' + money(e.pot) + (Number(s.potOverride) > 0 ? ' (override set in Setup)' : e.avgSold != null && s.auto ? ' (from the average of teams sold so far)' : ' (32 teams at the average price, plus teams already sold)') + '. Your team\'s share of the pot is ' + pct(mine.r.potShare) + ', so its fair value is about ' + (mine.r.potShare * 32 * 100).toFixed(0) + '% of the average team price.';
+    intro.innerHTML = 'Fair value of 100% of ' + esc(teamLabel(mine.t)) + ' is <b>' + money(V) + '</b> at this pot. Your reserve is <b>' + (R ? money(R) : 'not set') + '</b>' + (R ? ' (each partner\'s worst case ' + money(R / 2 + 25) + ')' : '') + '. Break-even reserve is fair value less $50, about <b>' + money(bestR) + '</b>. A reserve above that buys certainty of ownership at the cost of overpaying when the hammer lands between fair value and the reserve.';
+    // Reserve against a range of pot sizes: where does the current reserve overpay, and by how much at most?
+    var pb = document.querySelector('#potTable tbody'), share = mine.r.potShare, rake = 1 - (Number(s.rake) || 0) / 100;
+    var avgs = [1000, 1500, 2000, 2500, 3000, 3500];
+    pb.innerHTML = avgs.map(function (a) {
+      var pot = a * 32, fv = share * pot * rake, txt, cls;
+      if (!R) { txt = 'set a reserve'; cls = 'neutral'; }
+      else if (R + 50 <= fv) { txt = 'never overpays; you lose 100% if the hammer tops ' + money(R); cls = 'good'; }
+      else { txt = 'overpays if the hammer lands ' + money(fv) + ' to ' + money(R) + '; worst case ' + money(R + 50 - fv) + ' (' + money((R + 50 - fv) / 2) + ' each)'; cls = R + 50 - fv > fv * 0.5 ? 'bad' : 'warn'; }
+      return '<tr><td class="r num">' + money(a) + '</td><td class="r num">' + money(pot) + '</td><td class="r num">' + money(fv) + '</td><td><span class="pill ' + cls + '">' + txt + '</span></td></tr>';
+    }).join('');
     var rows = [], prices = [];
     for (var b = 500; b <= 4000; b += 250) prices.push(b);
     if (R > 0 && prices.indexOf(R) < 0) { prices.push(R); prices.sort(function (a, c) { return a - c; }); }
@@ -937,6 +966,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     document.getElementById('sBudget').value = s.budget;
     document.getElementById('sEdge').value = s.edge;
     document.getElementById('sUnsold').value = s.unsold;
+    document.getElementById('sPotOverride').value = s.potOverride || 0;
     document.getElementById('sRake').value = s.rake;
     document.getElementById('sAuto').checked = !!s.auto;
     document.getElementById('sAssumeBB').checked = !!s.assumeBB;
@@ -1013,6 +1043,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     s.budget = Number(document.getElementById('sBudget').value) || 0;
     s.edge = Number(document.getElementById('sEdge').value) || 0;
     s.unsold = Number(document.getElementById('sUnsold').value) || 0;
+    s.potOverride = Number(document.getElementById('sPotOverride').value) || 0;
     s.rake = Number(document.getElementById('sRake').value) || 0;
     s.auto = document.getElementById('sAuto').checked;
     s.assumeBB = document.getElementById('sAssumeBB').checked;
@@ -1029,6 +1060,11 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     renderAll();
   }
   document.getElementById('tab-setup').addEventListener('change', function (ev) { if (ev.target.closest('.form')) readSetup(); });
+  document.getElementById('rAvg').addEventListener('change', function (ev) { state.settings.unsold = Number(ev.target.value) || 0; touch(); renderAll(); });
+  document.getElementById('rRes').addEventListener('change', function (ev) {
+    var mine = state.teams.filter(function (t) { return t.mine; })[0]; if (!mine) return;
+    mine.reserve = Number(ev.target.value) || 0; touch(); renderAll();
+  });
   document.getElementById('recompute').addEventListener('click', function () { simKey = ''; baseKey = ''; ensureSim(); renderAll(); });
 
   function confirmBox(msg, onYes) {
