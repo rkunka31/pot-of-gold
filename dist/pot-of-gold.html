@@ -106,7 +106,8 @@ td .pill { white-space: normal; display: inline-block; line-height: 1.3; }
 .verdict .k { color: var(--muted); }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--fg-2); font-size: 13px; font-weight: 600; min-height: 36px; display: flex; align-items: center; }
-.edit-grid { display: grid; grid-template-columns: 1.6fr 0.8fr 0.9fr 0.7fr; gap: 6px; margin-top: 6px; align-items: end; }
+.edit-grid { display: grid; grid-template-columns: 0.9fr 1fr 0.9fr 0.8fr; gap: 6px; margin-top: 10px; align-items: end; }
+.edit-grid .name { grid-column: 1 / -1; }
 .edit-grid label { font-size: 11px; color: var(--muted); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
 textarea { min-height: 60px; resize: vertical; }
 
@@ -317,7 +318,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
             <option value="1">100% of course handicap</option>
             <option value="0.95">95%</option>
             <option value="0.9">90%</option>
-            <option value="0.85">85% (event rule)</option>
+            <option value="0.85">85% (event rule; only used where official strokes are blank)</option>
             <option value="0.8">80%</option>
           </select>
         </label>
@@ -332,14 +333,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       <div class="note">
         <p><b>Event rules:</b> two-man one net best, 85% allowance, Calcutta scored on Sunday only, top 5 owners plus ties paid, a tie for first settled on 18.</p>
         <p><b>Saturday carry-over.</b> After Round 1, enter each team's Saturday net score on its card. The model shifts that team's expected Sunday score by the weight above times the gap between what it shot and what the model expected. 20% is a reasonable weight for one round of evidence given that some handicaps are soft; 0% ignores Saturday.</p>
-        <p>Course handicaps use Greystone's ratings: Blue 72.1/140, Grey 71.2/135, White 70.4/132, Green 69.2/130, par 72, at the Round 1 tees.</p>
+        <p>Strokes come from the official tee sheet. Changing a player's tee recalculates his strokes the way the committee does: index × slope ÷ 113 + rating − 72, times 85%, rounded. Ratings and slopes the committee used: Gold 74.0/143, Blue 72.1/140, Grey 71.2/132, White 70.4/127, Green 69.2/about 123.</p>
       </div>
       <div class="btn-row"><button class="btn primary" id="recompute">Recompute model</button></div>
     </div>
     <div class="setup-block">
       <h3>How the numbers work</h3>
       <div class="note">
-        <p><b>Odds.</b> The model plays Sunday thousands of times. Each player gets a course handicap from his index and tee (Greystone ratings), then 85% of it as playing strokes, placed on holes by stroke index. On every hole each player draws a score from a distribution keyed to his handicap (how often a 15 makes birdie, par, bogey, double, worse), with a per-round form swing so hot and cold days happen. The team's hole score is the better net ball. Teams are ranked, the top 5 are paid with ties split, and a team's <b>share</b> is its average cut of the pot across all those Sundays.</p>
+        <p><b>Odds.</b> The model plays Sunday thousands of times. Each player's strokes come from the official tee sheet (85% allowance already applied), placed on holes by stroke index. His scoring ability comes from his index at his tee, using the same ratings the committee used. On every hole each player draws a score from a distribution keyed to his handicap (how often a 15 makes birdie, par, bogey, double, worse), with a per-round form swing so hot and cold days happen. The team's hole score is the better net ball. Teams are ranked, the top 5 are paid with ties split, and a team's <b>share</b> is its average cut of the pot across all those Sundays.</p>
         <p><b>Fair value</b> = share × pot estimate (less any house take). It is what 100% of the team is worth to a risk-neutral buyer. <b>Cap</b> = fair, halved if the buyback puts the team's money into the pot, then less your target edge. <b>EV</b> of a position = your ownership × fair, minus your net cost. Market share is the team's money in the pot divided by the pot, so a team whose model share beats its market share was bought cheap.</p>
         <p><b>Why teams differ.</b> In one net best ball, what wins is a reliable net-par floor from one player plus net birdies from the other. The 85% allowance takes more strokes off high handicaps, so the best structure here is a very low index (loses almost nothing) with a 13 to 17 partner (keeps most of his strokes and supplies the birdies). Two similar mid handicaps with no spread, or a plus handicapper who gives strokes back, sit at the bottom. The gaps are small: the best team wins about 4.5% of the time, the worst about 1.5%.</p>
       </div>
@@ -365,46 +366,46 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
 </nav>
 
 <script>
-// 2026 Pot of Gold — Round 1 tee sheet (Sat Oct 3, Greystone) paired 1+2 / 3+4 per group.
-// Handicap Index from the final player roster (Oct 1); tee code from the Round 1 tee sheet.
-// Assumed pairings for the two late roster changes: Eric Gallant with Colin Decunha (group 4A),
-// Mike Kluge replacing Paul Nalli with Jiten Waghela (group 9B). Edit on the board if different.
+// 2026 Pot of Gold — Round 1 tee sheet (Sat Oct 3, Greystone, issued Oct 2), paired 1+2 / 3+4 per group.
+// Each player: name, Handicap Index, assigned tee, official strokes from the tee sheet
+// (the first number in parentheses, already including the 85% allowance).
+// The model uses the official strokes directly; index and tee set the player's scoring ability.
 (function (root) {
-  var P = function (name, index, tee) { return { name: name, index: index, tee: tee || 'GRY', adj: 0 }; };
-  var ROSTER_VERSION = '2026-10-01 final';
+  var P = function (name, index, tee, strokes) { return { name: name, index: index, tee: tee || 'GRY', strokes: strokes == null ? null : strokes, adj: 0 }; };
+  var ROSTER_VERSION = '2026-10-02 tee sheet with official strokes';
   var TEAMS = [
-    { id: 't01', group: '1A', players: [P('Quinn Kerr', 1.0, 'BL'), P('Jamie Janjevich', 10.3)] },
-    { id: 't02', group: '1A', players: [P('Jeff Smith', 6.4), P('Tyson MacLean', 14.4)] },
-    { id: 't03', group: '1B', players: [P('Greg Lewis', 1.2, 'BL'), P('Mirco Durante', 13.4)] },
-    { id: 't04', group: '1B', players: [P('Scott Joyce', 9.6), P('Brian Murray', 13.5)] },
-    { id: 't05', group: '2',  players: [P('Alex Durante', 9.5), P('Bill Gray', 10.1)] },
-    { id: 't06', group: '2',  players: [P('Jeremy Nguyen', 8.9), P('Scott Dawkins', 24.6)] },
-    { id: 't07', group: '3',  players: [P('Scott Gamble', 6.7), P('Hugh McMaster', 17.5, 'WHT')] },
-    { id: 't08', group: '3',  players: [P('Ryan Kay', 7.3), P('Mark Bertoia', 16.1, 'WHT')] },
-    { id: 't09', group: '4A', players: [P('Tim McDonald', 11.0), P('Jay Littlejohn', 10.1)] },
-    { id: 't10', group: '4A', players: [P('Colin Decunha', 14.7, 'GRN'), P('Eric Gallant', 5.8)] },
-    { id: 't11', group: '4B', players: [P('Mark Ollerenshaw', 12.5), P('Dave Kelly', 10.0)] },
-    { id: 't12', group: '4B', players: [P('Graham Koshurba', 9.6), P('Trevor Riebot', 12.1)] },
-    { id: 't13', group: '5A', players: [P('Shawn Holloway', 7.3), P('Cory Raymond', 17.2)] },
-    { id: 't14', group: '5A', players: [P('Rick Warren', 5.8), P('Nick Lambevski', 17.0, 'WHT')] },
-    { id: 't15', group: '5B', players: [P('Jonathan Goodman', 5.3), P('Fraser Plant', 14.4, 'WHT')] },
-    { id: 't16', group: '5B', players: [P('Michael Sousa', 7.8), P('Charles Cartwright', 14.2, 'WHT')] },
-    { id: 't17', group: '6',  players: [P('Rob Kunka', 6.6), P('Ryan Stevens', 13.2)], mine: true },
-    { id: 't18', group: '6',  players: [P('Daniel Rust', 5.7), P('Rohit Mehra', 16.6, 'WHT')] },
-    { id: 't19', group: '7',  players: [P('Peter Blazevic', -2.7, 'BL'), P('Ed Loeprich', 12.6, 'WHT')] },
-    { id: 't20', group: '7',  players: [P('Steve Scannell', 9.4), P('Stephen Mangotich', 17.4, 'WHT')] },
-    { id: 't21', group: '8A', players: [P('Peter White', 3.0), P('Jonathan Riding', 14.5)] },
-    { id: 't22', group: '8A', players: [P('Chris Gerrie', 1.0, 'BL'), P('Henry Brinke', 19.0, 'WHT')] },
-    { id: 't23', group: '8B', players: [P("Corey O'Sullivan", 9.5), P('Bob Roselle', 22.1)] },
-    { id: 't24', group: '8B', players: [P('Daryl Brinke', 4.0, 'BL'), P('Andrew Grunda', 13.3)] },
-    { id: 't25', group: '9A', players: [P('Alex Abramov', 6.5), P('Arjun Chowdhury', 17.9)] },
-    { id: 't26', group: '9A', players: [P('Trevor Ash', 14.1), P('Trevor Wasney', 10.2)] },
-    { id: 't27', group: '9B', players: [P('Jiten Waghela', 5.5), P('Mike Kluge', 9.9)] },
-    { id: 't28', group: '9B', players: [P('Vince Enright', 4.0), P('Isaiah Sarkissian', 16.7)] },
-    { id: 't29', group: '10A', players: [P('Michael Alderman', 1.8), P('Frank Risi', 12.5)] },
-    { id: 't30', group: '10A', players: [P('James Drew', 7.6), P('Paulo Vieira', 23.0)] },
-    { id: 't31', group: '10B', players: [P('Al Dairou', 3.9), P('David Buchanan', 10.6, 'WHT')] },
-    { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL'), P('Mike Smith', 11.1, 'WHT')] }
+    { id: 't01', group: '1A', players: [P('Quinn Kerr', 1.0, 'BL', 1), P('Jamie Janjevich', 10.3, 'GRY', 10)] },
+    { id: 't02', group: '1A', players: [P('Jeff Smith', 6.4, 'GRY', 6), P('Tyson MacLean', 14.4, 'GRY', 14)] },
+    { id: 't03', group: '1B', players: [P('Greg Lewis', 1.2, 'BL', 1), P('Mirco Durante', 13.4, 'GRY', 13)] },
+    { id: 't04', group: '1B', players: [P('Scott Joyce', 9.6, 'GRY', 9), P('Brian Murray', 13.5, 'GRY', 13)] },
+    { id: 't05', group: '2', players: [P('Alex Durante', 9.5, 'GRY', 9), P('Bill Gray', 10.1, 'WHT', 8)] },
+    { id: 't06', group: '2', players: [P('Jeremy Nguyen', 8.9, 'GRY', 8), P('Scott Dawkins', 24.6, 'GRY', 24)] },
+    { id: 't07', group: '3', players: [P('Scott Gamble', 6.7, 'GRY', 6), P('Hugh McMaster', 17.5, 'GRN', 14)] },
+    { id: 't08', group: '3', players: [P('Ryan Kay', 7.3, 'GRY', 7), P('Mark Bertoia', 16.1, 'WHT', 14)] },
+    { id: 't09', group: '4A', players: [P('Jake Scott', -3.5, 'GLD', -2), P('Tim McDonald', 11.0, 'GRY', 10)] },
+    { id: 't10', group: '4A', players: [P('Jay Littlejohn', 10.1, 'WHT', 8), P('Colin Decunha', 14.7, 'GRN', 11)] },
+    { id: 't11', group: '4B', players: [P('Mark Ollerenshaw', 12.5, 'GRY', 12), P('Dave Kelly', 10.0, 'GRY', 9)] },
+    { id: 't12', group: '4B', players: [P('Graham Koshurba', 9.6, 'GRY', 9), P('Trevor Riebot', 12.1, 'GRY', 11)] },
+    { id: 't13', group: '5A', players: [P('Shawn Holloway', 7.3, 'GRY', 7), P('Cory Raymond', 17.2, 'GRY', 16)] },
+    { id: 't14', group: '5A', players: [P('Rick Warren', 5.8, 'GRY', 5), P('Nick Lambevski', 17.0, 'WHT', 15)] },
+    { id: 't15', group: '5B', players: [P('Jonathan Goodman', 5.3, 'GRY', 5), P('Fraser Plant', 14.4, 'WHT', 12)] },
+    { id: 't16', group: '5B', players: [P('Michael Sousa', 7.8, 'GRY', 7), P('Charles Cartwright', 14.2, 'WHT', 12)] },
+    { id: 't17', group: '6', players: [P('Rob Kunka', 6.6, 'GRY', 6), P('Ryan Stevens', 13.2, 'GRY', 12)], mine: true },
+    { id: 't18', group: '6', players: [P('Daniel Rust', 5.7, 'GRY', 5), P('Rohit Mehra', 16.6, 'WHT', 14)] },
+    { id: 't19', group: '7', players: [P('Peter Blazevic', -2.7, 'BL', -3), P('Ed Loeprich', 12.6, 'WHT', 11)] },
+    { id: 't20', group: '7', players: [P('Steve Scannell', 9.4, 'GRY', 9), P('Stephen Mangotich', 17.4, 'WHT', 15)] },
+    { id: 't21', group: '8A', players: [P('Peter White', 3.0, 'GRY', 2), P('Jonathan Riding', 14.5, 'GRY', 14)] },
+    { id: 't22', group: '8A', players: [P('Chris Gerrie', 1.0, 'BL', 1), P('Henry Brinke', 19.0, 'WHT', 17)] },
+    { id: 't23', group: '8B', players: [P("Corey O'Sullivan", 9.5, 'GRY', 9), P('Bob Roselle', 22.1, 'GRY', 21)] },
+    { id: 't24', group: '8B', players: [P('Daryl Brinke', 4.0, 'BL', 4), P('Andrew Grunda', 13.3, 'GRY', 13)] },
+    { id: 't25', group: '9A', players: [P('Alex Abramov', 6.5, 'GRY', 6), P('Arjun Chowdhury', 17.9, 'GRY', 17)] },
+    { id: 't26', group: '9A', players: [P('Trevor Ash', 14.1, 'GRY', 13), P('Trevor Wasney', 10.2, 'GRY', 9)] },
+    { id: 't27', group: '9B', players: [P('Jiten Waghela', 5.5, 'GRY', 5), P('Mike Kluge', 9.9, 'GRY', 9)] },
+    { id: 't28', group: '9B', players: [P('Vince Enright', 4.0, 'GRY', 3), P('Isaiah Sarkissian', 16.7, 'GRY', 16)] },
+    { id: 't29', group: '10A', players: [P('Michael Alderman', 1.8, 'GRY', 1), P('Frank Risi', 12.5, 'WHT', 11)] },
+    { id: 't30', group: '10A', players: [P('James Drew', 7.6, 'GRY', 7), P('Paulo Vieira', 23.0, 'GRY', 22)] },
+    { id: 't31', group: '10B', players: [P('Al Dairou', 3.9, 'GRY', 3), P('David Buchanan', 10.6, 'WHT', 9)] },
+    { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL', -1), P('Mike Smith', 11.1, 'WHT', 9)] }
   ];
   TEAMS.version = ROSTER_VERSION;
   if (typeof module !== 'undefined' && module.exports) module.exports = TEAMS;
@@ -421,12 +422,16 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
 (function (root) {
   'use strict';
 
-  // Greystone Golf Club (Milton, ON), par 72. Ratings/slopes per public scorecard.
+  // Greystone Golf Club (Milton, ON), par 72. Ratings from the public scorecard; slopes are the ones the
+  // committee used for the Oct 3 tee sheet, recovered by reproducing all 64 official stroke counts:
+  // Grey 132 and White 127 are exact; Blue and Gold match the scorecard; Green is 121-125 (123 used).
   var TEES = {
+    GLD: { name: 'Gold',  rating: 74.0, slope: 143 },
     BL:  { name: 'Blue',  rating: 72.1, slope: 140 },
-    GRY: { name: 'Grey',  rating: 71.2, slope: 135 },
-    WHT: { name: 'White', rating: 70.4, slope: 132 },
-    GRN: { name: 'Green', rating: 69.2, slope: 130 }
+    GRY: { name: 'Grey',  rating: 71.2, slope: 132 },
+    WHT: { name: 'White', rating: 70.4, slope: 127 },
+    GRN: { name: 'Green', rating: 69.2, slope: 123 },
+    RED: { name: 'Red',   rating: 67.5, slope: 125 }
   };
   var PAR = 72;
 
@@ -476,9 +481,15 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     return c;
   }
 
-  function courseHandicap(index, teeCode) {
+  function courseHandicapRaw(index, teeCode) {
     var tee = TEES[teeCode] || TEES.GRY;
-    return Math.round(index * tee.slope / 113 + (tee.rating - PAR));
+    return index * tee.slope / 113 + (tee.rating - PAR);
+  }
+  function courseHandicap(index, teeCode) { return Math.round(courseHandicapRaw(index, teeCode)); }
+  // The committee's method (matches every official number on the Oct 3 sheet):
+  // unrounded course handicap x allowance, then rounded.
+  function playingHandicap(index, teeCode, allowance) {
+    return Math.round(courseHandicapRaw(index, teeCode) * (allowance == null ? 0.85 : allowance));
   }
 
   // Strokes received per hole for a playing handicap (negative = plus).
@@ -527,13 +538,17 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     // Precompute per player: playing handicap, stroke map, and per-round form sd.
     var prep = teams.map(function (t) {
       return t.players.map(function (p) {
+        // Ability: course handicap from index (+ any adjustment) at the player's tee.
+        // Strokes: the official number from the tee sheet when given, else WHS course handicap x allowance.
         var idx = (p.index || 0) + (p.adj || 0);
-        var ch = courseHandicap(idx, p.tee);
-        var ph = Math.round(ch * allowance);
+        var ch = courseHandicapRaw(idx, p.tee);
+        var official = p.strokes != null && p.strokes !== '' && !isNaN(Number(p.strokes));
+        var ph = official ? Number(p.strokes) : playingHandicap(p.index || 0, p.tee, allowance);
         return {
           ch: ch, ph: ph,
           strokes: strokesByHole(ph),
           formSd: 1.5 + 0.12 * Math.max(ch, 0),
+          official: official,
           active: p.index != null && !isNaN(p.index)
         };
       });
@@ -603,8 +618,9 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       for (var k = 0; k < payouts.length; k++) { posProb[i][k] /= sims; pm += posProb[i][k]; }
       pw = posProb[i][0];
       return {
-        ch: prep[i].map(function (p) { return p.ch; }),
+        ch: prep[i].map(function (p) { return Math.round(p.ch); }),
         ph: prep[i].map(function (p) { return p.ph; }),
+        official: prep[i].map(function (p) { return p.official; }),
         pWin: pw,
         pMoney: pm,
         posProb: Array.prototype.slice.call(posProb[i]),
@@ -615,7 +631,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     return { teams: out, ranks: ranks, shares: shares, n: n, sims: sims };
   }
 
-  var api = { TEES: TEES, PAR: PAR, courseHandicap: courseHandicap, strokesByHole: strokesByHole, holeDist: holeDist, simulate: simulate };
+  var api = { TEES: TEES, PAR: PAR, courseHandicap: courseHandicap, courseHandicapRaw: courseHandicapRaw, playingHandicap: playingHandicap, strokesByHole: strokesByHole, holeDist: holeDist, simulate: simulate };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PotModel = api;
 })(typeof window !== 'undefined' ? window : this);
@@ -633,7 +649,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
 
   function freshTeam(b) {
     return { id: b.id, group: b.group, mine: !!b.mine,
-      players: b.players.map(function (p) { return { name: p.name, index: p.index, tee: p.tee, adj: 0 }; }),
+      players: b.players.map(function (p) { return { name: p.name, index: p.index, tee: p.tee, strokes: p.strokes == null ? null : p.strokes, adj: 0 }; }),
       live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null, resaleFrac: 0, resaleAmt: 0 };
   }
   function freshState() {
@@ -655,8 +671,9 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         for (var key in t) if (o[key] !== undefined && key !== 'players') t[key] = o[key];
         if (Array.isArray(o.players)) t.players = t.players.map(function (p, i) {
           var q = o.players[i] || {};
-          if (!sameRoster) return { name: p.name, index: p.index, tee: p.tee, adj: Number(q.adj) || 0 };
-          return { name: q.name != null ? q.name : p.name, index: q.index != null ? Number(q.index) : p.index, tee: q.tee || p.tee, adj: Number(q.adj) || 0 };
+          if (!sameRoster) return { name: p.name, index: p.index, tee: p.tee, strokes: p.strokes, adj: Number(q.adj) || 0 };
+          return { name: q.name != null ? q.name : p.name, index: q.index != null ? Number(q.index) : p.index, tee: q.tee || p.tee,
+            strokes: q.strokes !== undefined ? q.strokes : p.strokes, adj: Number(q.adj) || 0 };
         });
         return t;
       });
@@ -703,7 +720,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   var baseSim = null, baseKey = '';
   function baseFingerprint() {
     var s = state.settings;
-    return JSON.stringify([s.allowance, s.sims, s.rounds, s.payouts, state.teams.map(function (t) { return t.players.map(function (p) { return [p.index, p.tee, p.adj]; }); })]);
+    return JSON.stringify([s.allowance, s.sims, s.rounds, s.payouts, state.teams.map(function (t) { return t.players.map(function (p) { return [p.index, p.tee, p.adj, p.strokes]; }); })]);
   }
   function simFingerprint() {
     return baseFingerprint() + JSON.stringify([state.settings.satWeight, state.teams.map(function (t) { return t.satNet; })]);
@@ -854,7 +871,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     var ph = r.ph;
     var tees = M.TEES;
     var playersHtml = t.players.map(function (p, i) {
-      return '<div><b>' + esc(p.name) + '</b> ' + hcp(p.index) + (p.adj ? ' (' + (p.adj > 0 ? '+' : '') + p.adj + ')' : '') + ' <span class="muted">' + (tees[p.tee] ? tees[p.tee].name : p.tee) + ' · plays ' + hcp(ph[i]) + '</span></div>';
+      return '<div><b>' + esc(p.name) + '</b> ' + hcp(p.index) + (p.adj ? ' (' + (p.adj > 0 ? '+' : '') + p.adj + ')' : '') + ' <span class="muted">' + (tees[p.tee] ? tees[p.tee].name : p.tee) + ' · ' + (r.official && r.official[i] ? 'gets ' : 'plays ') + hcp(ph[i]) + (r.official && r.official[i] ? '' : ' (est.)') + '</span></div>';
     }).join('');
     var spread = Math.abs(ph[0] - ph[1]);
     var open = ui.open[t.id] ? ' open' : '';
@@ -893,10 +910,11 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       '<details' + open + ' data-id="' + t.id + '"><summary>Edit players / note</summary>' +
         t.players.map(function (p, i) {
           return '<div class="edit-grid">' +
-            '<label>Name <input type="text" data-p="' + i + '" data-f="name" value="' + esc(p.name) + '"></label>' +
+            '<label class="name">Name <input type="text" data-p="' + i + '" data-f="name" value="' + esc(p.name) + '"></label>' +
             '<label>Index <input type="number" data-p="' + i + '" data-f="index" step="0.1" value="' + p.index + '"></label>' +
             '<label>Tee <select data-p="' + i + '" data-f="tee">' + Object.keys(tees).map(function (k) { return '<option value="' + k + '"' + (p.tee === k ? ' selected' : '') + '>' + tees[k].name + '</option>'; }).join('') + '</select></label>' +
-            '<label>Adj <input type="number" data-p="' + i + '" data-f="adj" step="0.5" value="' + (p.adj || 0) + '" title="Strokes to add if you think the index is soft (negative if he is better than his number)"></label>' +
+            '<label>Strokes <input type="number" data-p="' + i + '" data-f="strokes" step="1" value="' + (p.strokes == null ? '' : p.strokes) + '" placeholder="auto" title="Official strokes from the tee sheet. Leave blank to estimate from index, tee and allowance."></label>' +
+            '<label>Adj <input type="number" data-p="' + i + '" data-f="adj" step="0.5" value="' + (p.adj || 0) + '" title="Change to his scoring ability only, in strokes of index: negative if he plays better than his number. Does not change his strokes."></label>' +
           '</div>';
         }).join('') +
         '<label style="display:block;margin-top:8px;font-size:12px;color:var(--muted);font-weight:600">Note<textarea data-f="note" placeholder="Who is in the bid group, side deals, anything to remember">' + esc(t.note) + '</textarea></label>' +
@@ -1070,7 +1088,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     if (el.dataset.p != null) {
       var p = t.players[Number(el.dataset.p)];
       if (f === 'name') p.name = el.value;
-      else if (f === 'tee') { p.tee = el.value; resim = true; }
+      else if (f === 'tee') { p.tee = el.value; p.strokes = M.playingHandicap(p.index, p.tee, Number(state.settings.allowance)); resim = true; }
+      else if (f === 'strokes') { var sv2 = parseInt(el.value, 10); p.strokes = isNaN(sv2) ? null : sv2; resim = true; }
       else { var n = parseFloat(el.value); if (!isNaN(n)) { p[f] = n; resim = true; } }
     } else if (el.type === 'checkbox') {
       t[f] = el.checked;

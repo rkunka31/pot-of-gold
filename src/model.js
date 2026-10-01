@@ -6,12 +6,16 @@
 (function (root) {
   'use strict';
 
-  // Greystone Golf Club (Milton, ON), par 72. Ratings/slopes per public scorecard.
+  // Greystone Golf Club (Milton, ON), par 72. Ratings from the public scorecard; slopes are the ones the
+  // committee used for the Oct 3 tee sheet, recovered by reproducing all 64 official stroke counts:
+  // Grey 132 and White 127 are exact; Blue and Gold match the scorecard; Green is 121-125 (123 used).
   var TEES = {
+    GLD: { name: 'Gold',  rating: 74.0, slope: 143 },
     BL:  { name: 'Blue',  rating: 72.1, slope: 140 },
-    GRY: { name: 'Grey',  rating: 71.2, slope: 135 },
-    WHT: { name: 'White', rating: 70.4, slope: 132 },
-    GRN: { name: 'Green', rating: 69.2, slope: 130 }
+    GRY: { name: 'Grey',  rating: 71.2, slope: 132 },
+    WHT: { name: 'White', rating: 70.4, slope: 127 },
+    GRN: { name: 'Green', rating: 69.2, slope: 123 },
+    RED: { name: 'Red',   rating: 67.5, slope: 125 }
   };
   var PAR = 72;
 
@@ -61,9 +65,15 @@
     return c;
   }
 
-  function courseHandicap(index, teeCode) {
+  function courseHandicapRaw(index, teeCode) {
     var tee = TEES[teeCode] || TEES.GRY;
-    return Math.round(index * tee.slope / 113 + (tee.rating - PAR));
+    return index * tee.slope / 113 + (tee.rating - PAR);
+  }
+  function courseHandicap(index, teeCode) { return Math.round(courseHandicapRaw(index, teeCode)); }
+  // The committee's method (matches every official number on the Oct 3 sheet):
+  // unrounded course handicap x allowance, then rounded.
+  function playingHandicap(index, teeCode, allowance) {
+    return Math.round(courseHandicapRaw(index, teeCode) * (allowance == null ? 0.85 : allowance));
   }
 
   // Strokes received per hole for a playing handicap (negative = plus).
@@ -112,13 +122,17 @@
     // Precompute per player: playing handicap, stroke map, and per-round form sd.
     var prep = teams.map(function (t) {
       return t.players.map(function (p) {
+        // Ability: course handicap from index (+ any adjustment) at the player's tee.
+        // Strokes: the official number from the tee sheet when given, else WHS course handicap x allowance.
         var idx = (p.index || 0) + (p.adj || 0);
-        var ch = courseHandicap(idx, p.tee);
-        var ph = Math.round(ch * allowance);
+        var ch = courseHandicapRaw(idx, p.tee);
+        var official = p.strokes != null && p.strokes !== '' && !isNaN(Number(p.strokes));
+        var ph = official ? Number(p.strokes) : playingHandicap(p.index || 0, p.tee, allowance);
         return {
           ch: ch, ph: ph,
           strokes: strokesByHole(ph),
           formSd: 1.5 + 0.12 * Math.max(ch, 0),
+          official: official,
           active: p.index != null && !isNaN(p.index)
         };
       });
@@ -188,8 +202,9 @@
       for (var k = 0; k < payouts.length; k++) { posProb[i][k] /= sims; pm += posProb[i][k]; }
       pw = posProb[i][0];
       return {
-        ch: prep[i].map(function (p) { return p.ch; }),
+        ch: prep[i].map(function (p) { return Math.round(p.ch); }),
         ph: prep[i].map(function (p) { return p.ph; }),
+        official: prep[i].map(function (p) { return p.official; }),
         pWin: pw,
         pMoney: pm,
         posProb: Array.prototype.slice.call(posProb[i]),
@@ -200,7 +215,7 @@
     return { teams: out, ranks: ranks, shares: shares, n: n, sims: sims };
   }
 
-  var api = { TEES: TEES, PAR: PAR, courseHandicap: courseHandicap, strokesByHole: strokesByHole, holeDist: holeDist, simulate: simulate };
+  var api = { TEES: TEES, PAR: PAR, courseHandicap: courseHandicap, courseHandicapRaw: courseHandicapRaw, playingHandicap: playingHandicap, strokesByHole: strokesByHole, holeDist: holeDist, simulate: simulate };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PotModel = api;
 })(typeof window !== 'undefined' ? window : this);
