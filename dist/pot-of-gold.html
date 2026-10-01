@@ -1,0 +1,1192 @@
+<title>Pot of Gold Auction Board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-column phone-first board; sticky money header, bottom tab bar, cards in the middle. */
+:root {
+  --bg: #f5f6f2;
+  --surface: #ffffff;
+  --surface-2: #eceee7;
+  --fg: #182019;
+  --fg-2: #4d5850;
+  --muted: #7d877f;
+  --line: #d9ddd3;
+  --accent: #9a6a06;
+  --accent-soft: #f3e6c2;
+  --good: #1f7a45;
+  --good-soft: #dcefe2;
+  --warn: #a6600a;
+  --warn-soft: #fbe9cc;
+  --bad: #b8392f;
+  --bad-soft: #f7dcd8;
+  --series-model: #2a78d6;
+  --series-market: #eb6834;
+  --font-display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+  --font-body: "Barlow", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131815; --surface: #1c221e; --surface-2: #252c27; --fg: #e9ede8; --fg-2: #b6bfb8; --muted: #7f8a82; --line: #343c36;
+    --accent: #e2ac2f; --accent-soft: #3b3115; --good: #4fc47f; --good-soft: #1b3326; --warn: #e8a33c; --warn-soft: #3b2c12; --bad: #f07a6f; --bad-soft: #3d1f1c;
+    --series-model: #3987e5; --series-market: #d95926; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131815; --surface: #1c221e; --surface-2: #252c27; --fg: #e9ede8; --fg-2: #b6bfb8; --muted: #7f8a82; --line: #343c36;
+  --accent: #e2ac2f; --accent-soft: #3b3115; --good: #4fc47f; --good-soft: #1b3326; --warn: #e8a33c; --warn-soft: #3b2c12; --bad: #f07a6f; --bad-soft: #3d1f1c;
+  --series-model: #3987e5; --series-market: #d95926; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.4; -webkit-text-size-adjust: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+input[type=number], input[type=text], select, textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; min-height: 42px; width: 100%; min-width: 0; }
+input[type=number] { font-variant-numeric: tabular-nums; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); margin: 0; }
+label.check { display: flex; align-items: center; gap: 8px; min-height: 42px; }
+.num { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: 0.01em; }
+h2 { font-size: 22px; }
+h3 { font-size: 18px; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+/* Sticky money header */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); padding: 10px 16px 8px; }
+.top-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.top h1 { font-size: 24px; }
+.top h1 span { color: var(--accent); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px; }
+.stat .eyebrow { display: block; }
+.stat .v { font-family: var(--font-display); font-size: 24px; font-weight: 600; line-height: 1.1; }
+.meter { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.meter > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.meter > i.over { background: var(--bad); }
+.sync { font-size: 12px; color: var(--muted); }
+
+main { padding: 12px 16px calc(84px + env(safe-area-inset-bottom, 0px)); max-width: 760px; margin: 0 auto; }
+section[hidden] { display: none !important; }
+
+/* Toolbar */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+.toolbar select { width: auto; flex: 1 1 150px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 14px; min-height: 40px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+/* Team cards */
+.cards { display: flex; flex-direction: column; gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.card.mine { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.card.sold { background: color-mix(in srgb, var(--surface) 92%, var(--fg) 8%); }
+.card-head { display: flex; align-items: center; gap: 10px; }
+.rank { font-family: var(--font-display); font-size: 20px; font-weight: 700; min-width: 34px; color: var(--fg-2); }
+.tname { font-family: var(--font-display); font-size: 20px; font-weight: 600; flex: 1; min-width: 0; line-height: 1.1; }
+.tname small { font-family: var(--font-body); font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 6px; }
+.pill { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 4px 10px; white-space: nowrap; letter-spacing: 0.03em; }
+td .pill { white-space: normal; display: inline-block; line-height: 1.3; }
+.pill.good { background: var(--good-soft); color: var(--good); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.neutral { background: var(--surface-2); color: var(--fg-2); }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
+.players { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 8px; font-size: 13px; color: var(--fg-2); }
+.players b { color: var(--fg); font-weight: 600; }
+.model-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.model-row .eyebrow { display: block; }
+.model-row .v { font-family: var(--font-display); font-size: 19px; font-weight: 600; }
+.inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-top: 10px; }
+.inputs label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.inputs .wide { grid-column: 1 / -1; }
+.money { position: relative; }
+.money input { padding-left: 22px; }
+.money::before { content: "$"; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.verdict { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.verdict .k { color: var(--muted); }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--fg-2); font-size: 13px; font-weight: 600; min-height: 36px; display: flex; align-items: center; }
+.edit-grid { display: grid; grid-template-columns: 0.9fr 1fr 0.9fr 0.8fr; gap: 6px; margin-top: 10px; align-items: end; }
+.edit-grid .name { grid-column: 1 / -1; }
+.edit-grid label { font-size: 11px; color: var(--muted); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+textarea { min-height: 60px; resize: vertical; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+td.r, th.r { text-align: right; }
+tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
+
+/* Tiles */
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 10px 0 14px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.tile .v { font-family: var(--font-display); font-size: 26px; font-weight: 600; line-height: 1.1; }
+.tile .v.pos { color: var(--good); } .tile .v.neg { color: var(--bad); }
+
+/* Charts */
+.chart { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--fg-2); margin: 6px 0 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.legend i.marker { border-radius: 50%; }
+.bars { display: grid; grid-template-columns: minmax(96px, 30%) 1fr auto; gap: 6px 8px; align-items: center; font-size: 13px; }
+.bars .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
+.bars .lbl.mine { color: var(--accent); font-weight: 600; }
+.track { position: relative; height: 16px; background: var(--surface-2); border-radius: 0 4px 4px 0; }
+.track > b { position: absolute; left: 0; top: 2px; bottom: 2px; background: var(--series-model); border-radius: 0 4px 4px 0; }
+.track > s { position: absolute; top: 50%; width: 10px; height: 10px; margin-left: -5px; transform: translateY(-50%); background: var(--series-market); border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); text-decoration: none; }
+.track > u { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--fg); text-decoration: none; }
+.bars .val { color: var(--fg-2); white-space: nowrap; }
+.grid-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+/* Setup */
+.form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.form .wide { grid-column: 1 / -1; }
+.payouts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 10px 14px; min-height: 44px; cursor: pointer; font-weight: 600; }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.note { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--fg-2); margin: 10px 0; }
+.note p { margin: 0 0 6px; } .note p:last-child { margin: 0; }
+.setup-block { margin-bottom: 22px; }
+
+/* Bottom tabs */
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface); border-top: 1px solid var(--line); padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+.tabs button { background: none; border: 0; border-radius: 10px; padding: 8px 4px; min-height: 48px; font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 420px) {
+  .model-row { grid-template-columns: repeat(2, 1fr); }
+  .stats .v { font-size: 20px; }
+}
+@media (prefers-reduced-motion: no-preference) { .track > b { transition: width .25s ease; } }
+</style>
+
+<header class="top">
+  <div class="top-row">
+    <h1>Pot of <span>Gold</span> Calcutta</h1>
+    <span class="sync" id="sync">Loading</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="eyebrow">Pot est.</span><span class="v num" id="hPot">$0</span></div>
+    <div class="stat"><span class="eyebrow" id="hBudgetLbl">Spent of $2,000</span><span class="v num" id="hSpent">$0</span><div class="meter"><i id="hMeter" style="width:0%"></i></div></div>
+    <div class="stat"><span class="eyebrow">My EV</span><span class="v num" id="hEv">$0</span></div>
+  </div>
+</header>
+
+<main>
+  <section id="tab-board">
+    <div class="toolbar">
+      <select id="sort" aria-label="Sort teams">
+        <option value="model">Sort: model rank</option>
+        <option value="tee">Sort: tee sheet order</option>
+        <option value="edge">Sort: best edge</option>
+        <option value="price">Sort: price (high to low)</option>
+      </select>
+      <div class="chips" role="group" aria-label="Filter">
+        <button class="chip" data-filter="all" aria-pressed="true">All</button>
+        <button class="chip" data-filter="unsold" aria-pressed="false">Unsold</button>
+        <button class="chip" data-filter="sold" aria-pressed="false">Sold</button>
+        <button class="chip" data-filter="mine" aria-pressed="false">Mine</button>
+      </div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section id="tab-bets" hidden>
+    <h2>My positions</h2>
+    <div class="tiles">
+      <div class="tile"><span class="eyebrow">Committed</span><div class="v num" id="bSpent">$0</div><div class="small muted" id="bLeft">of $2,000</div></div>
+      <div class="tile"><span class="eyebrow">Expected value</span><div class="v num" id="bEv">$0</div><div class="small muted" id="bRet"></div></div>
+      <div class="tile"><span class="eyebrow">Chance of profit</span><div class="v num" id="bProb">0%</div><div class="small muted">across simulated tournaments</div></div>
+      <div class="tile"><span class="eyebrow">Net result range</span><div class="v num" id="bRange">$0</div><div class="small muted">10th to 90th percentile</div></div>
+    </div>
+    <div class="table-wrap">
+      <table id="betsTable">
+        <thead><tr><th>Team</th><th class="r">Net cost</th><th class="r">Own</th><th class="r">Sold on</th><th class="r">Fair</th><th class="r">EV</th><th class="r">Win</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:18px">Resale calculator</h3>
+    <p class="small muted">What to charge for a slice of a team you own. Pick a team; if you hold a position its numbers fill in, otherwise enter the scenario. Cost basis is what you paid per point. Market basis is the room's price per point. Fair is the model's value of the slice, the price at which your EV is unchanged.</p>
+    <div class="form" style="margin:8px 0 10px">
+      <label class="wide">Team <select id="rcTeam"></select></label>
+      <label>Hammer price <span class="money"><input type="number" id="rcHammer" min="0" step="50"></span></label>
+      <label>My ownership (% of team) <input type="number" id="rcOwn" min="0" max="100" step="5"></label>
+      <label>My net cost <span class="money"><input type="number" id="rcCost" min="0" step="25"></span></label>
+      <label>Markup over fair (%) <input type="number" id="rcMarkup" min="0" step="5"></label>
+    </div>
+    <p class="small" id="rcSummary"></p>
+    <div class="table-wrap">
+      <table id="rcTable">
+        <thead><tr><th class="r">Slice</th><th class="r">Cost basis</th><th class="r">Market</th><th class="r">Fair</th><th class="r">Ask</th><th class="r">Keep</th><th class="r">Net cost after</th><th class="r">EV after (at fair)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:18px">My team: reserve scenarios</h3>
+    <div class="form" style="margin:8px 0 10px">
+      <label>Expected average hammer price <span class="money"><input type="number" id="rAvg" min="0" step="100"></span></label>
+      <label>Our sealed reserve <span class="money"><input type="number" id="rRes" min="0" step="50"></span></label>
+      <div class="small muted wide" id="rPot"></div>
+    </div>
+    <p class="small muted" id="resvIntro"></p>
+    <div class="table-wrap">
+      <table id="potTable">
+        <thead><tr><th class="r">Avg price</th><th class="r">Pot</th><th class="r">Fair (100%)</th><th>With your reserve</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="small muted" style="margin-top:12px">Hammer-by-hammer at the current pot estimate. The last column is the hedge: keep 100% via the reserve, then sell half to the under-bidder at half the hammer. That recreates the 50% buyback position for an extra $50, but on your terms.</p>
+    <div class="table-wrap">
+      <table id="resvTable">
+        <thead><tr><th class="r">Hammer</th><th>Outcome</th><th class="r">Own</th><th class="r">Each pays</th><th class="r">EV (mine)</th><th class="r">Then sell 50% at ½ hammer: each pays / EV</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:18px">Planned bids</h3>
+    <p class="small muted">Plan amounts are what you intend to put in before a team goes up. Actual cost only counts once a team is marked sold.</p>
+    <div class="table-wrap">
+      <table id="planTable">
+        <thead><tr><th>Team</th><th class="r">Plan</th><th class="r">Cap</th><th class="r">Fair</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-charts" hidden>
+    <h2>Model vs. market</h2>
+    <div class="chart">
+      <div class="eyebrow">Expected share of the pot, by team</div>
+      <div class="legend"><span><i style="background:var(--series-model)"></i>Model share</span><span><i class="marker" style="background:var(--series-market)"></i>Market-implied share (sold teams)</span></div>
+      <div class="bars" id="shareChart"></div>
+      <div class="grid-note">A team is cheap when the orange dot sits left of the blue bar. Market share is what the team's total contribution is of the estimated pot.</div>
+    </div>
+    <div class="chart">
+      <div class="eyebrow">Sold price vs. fair value</div>
+      <div class="legend"><span><i style="background:var(--series-model)"></i>Fair value of 100%</span><span><i class="marker" style="background:var(--series-market)"></i>Price paid (winning bid)</span><span><i style="background:var(--fg);width:2px"></i>Cap</span></div>
+      <div class="bars" id="priceChart"></div>
+      <div class="grid-note">Cap is the most you should pay after the target edge and the buyback assumption. Teams that haven't sold are not shown.</div>
+    </div>
+  </section>
+
+  <section id="tab-setup" hidden>
+    <h2>Setup</h2>
+    <div class="setup-block">
+      <h3>Money rules</h3>
+      <div class="form" style="margin-top:8px">
+        <label>Total budget <span class="money"><input type="number" id="sBudget" min="0" step="50"></span></label>
+        <label>Target edge (%) <input type="number" id="sEdge" min="0" max="80" step="5"></label>
+        <label>Expected average hammer price <span class="money"><input type="number" id="sUnsold" min="0" step="50"></span></label>
+        <label>Pot override (0 = off) <span class="money"><input type="number" id="sPotOverride" min="0" step="1000"></span></label>
+        <label>House take (%) <input type="number" id="sRake" min="0" max="50" step="1"></label>
+        <label class="check wide"><input type="checkbox" id="sAuto"> Estimate unsold teams from the average of what sold teams put in (bids plus buybacks) once 3 have sold</label>
+        <label class="wide">How the 50% buyback is paid
+          <select id="sBBMode">
+            <option value="match">Team matches the hammer into the pot (pot doubles for that team)</option>
+            <option value="reimburse">Team pays half the hammer back to the auction winner</option>
+          </select>
+        </label>
+        <label class="check wide"><input type="checkbox" id="sAssumeBB"> Assume teams take the buyback when setting caps</label>
+        <label class="check wide"><input type="checkbox" id="sUnsoldBB"> Assume unsold teams will buy back when estimating the pot</label>
+        <div class="wide">
+          <span class="eyebrow">Payout split (%) for 1st to 5th</span>
+          <div class="payouts" style="margin-top:4px">
+            <input type="number" id="p0" min="0" max="100" aria-label="1st place share">
+            <input type="number" id="p1" min="0" max="100" aria-label="2nd place share">
+            <input type="number" id="p2" min="0" max="100" aria-label="3rd place share">
+            <input type="number" id="p3" min="0" max="100" aria-label="4th place share">
+            <input type="number" id="p4" min="0" max="100" aria-label="5th place share">
+          </div>
+          <div class="small muted" id="paySum" style="margin-top:4px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="setup-block">
+      <h3>Format and handicap rules</h3>
+      <div class="form" style="margin-top:8px">
+        <label>Calcutta is scored on
+          <select id="sRounds">
+            <option value="1">Sunday round only (18 holes)</option>
+            <option value="2">Both days (36 holes)</option>
+          </select>
+        </label>
+        <label>Saturday carry-over weight (%) <input type="number" id="sSatW" min="0" max="100" step="5"></label>
+        <label>Handicap allowance
+          <select id="sAllow">
+            <option value="1">100% of course handicap</option>
+            <option value="0.95">95%</option>
+            <option value="0.9">90%</option>
+            <option value="0.85">85% (event rule; only used where official strokes are blank)</option>
+            <option value="0.8">80%</option>
+          </select>
+        </label>
+        <label>Simulations
+          <select id="sSims">
+            <option value="1500">1,500 (fast)</option>
+            <option value="3000">3,000</option>
+            <option value="5000">5,000 (slow on phone)</option>
+          </select>
+        </label>
+      </div>
+      <div class="note">
+        <p><b>Event rules:</b> two-man one net best, 85% allowance, Calcutta scored on Sunday only, top 5 owners plus ties paid, a tie for first settled on 18.</p>
+        <p><b>Saturday carry-over.</b> After Round 1, enter each team's Saturday net score on its card. The model shifts that team's expected Sunday score by the weight above times the gap between what it shot and what the model expected. 20% is a reasonable weight for one round of evidence given that some handicaps are soft; 0% ignores Saturday.</p>
+        <p>Strokes come from the official tee sheet. Changing a player's tee recalculates his strokes the way the committee does: index × slope ÷ 113 + rating − 72, times 85%, rounded. Ratings and slopes the committee used: Gold 74.0/143, Blue 72.1/140, Grey 71.2/132, White 70.4/127, Green 69.2/about 123.</p>
+      </div>
+      <div class="btn-row"><button class="btn primary" id="recompute">Recompute model</button></div>
+    </div>
+    <div class="setup-block">
+      <h3>How the numbers work</h3>
+      <div class="note">
+        <p><b>Odds.</b> The model plays Sunday thousands of times. Each player's strokes come from the official tee sheet (85% allowance already applied), placed on holes by stroke index. His scoring ability comes from his index at his tee, using the same ratings the committee used. On every hole each player draws a score from a distribution keyed to his handicap (how often a 15 makes birdie, par, bogey, double, worse), with a per-round form swing so hot and cold days happen. The team's hole score is the better net ball. Teams are ranked, the top 5 are paid with ties split, and a team's <b>share</b> is its average cut of the pot across all those Sundays.</p>
+        <p><b>Fair value</b> = share × pot estimate (less any house take). It is what 100% of the team is worth to a risk-neutral buyer. <b>Cap</b> = fair, halved if the buyback puts the team's money into the pot, then less your target edge. <b>EV</b> of a position = your ownership × fair, minus your net cost. Market share is the team's money in the pot divided by the pot, so a team whose model share beats its market share was bought cheap.</p>
+        <p><b>Why teams differ.</b> In one net best ball, what wins is a reliable net-par floor from one player plus net birdies from the other. The 85% allowance takes more strokes off high handicaps, so the best structure here is a very low index (loses almost nothing) with a 13 to 17 partner (keeps most of his strokes and supplies the birdies). Two similar mid handicaps with no spread, or a plus handicapper who gives strokes back, sit at the bottom. The gaps are small: the best team wins about 4.5% of the time, the worst about 1.5%.</p>
+      </div>
+    </div>
+    <div class="setup-block">
+      <h3>Data</h3>
+      <p class="small muted" id="syncDetail"></p>
+      <p class="small muted" id="rosterVer"></p>
+      <div class="btn-row">
+        <button class="btn danger" id="resetBids">Clear all auction entries</button>
+        <button class="btn danger" id="resetAll">Reset to tee sheet</button>
+      </div>
+      <div id="confirmBox" class="note" hidden></div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs" aria-label="Sections">
+  <button data-tab="board" aria-selected="true">Board</button>
+  <button data-tab="bets" aria-selected="false">My bets</button>
+  <button data-tab="charts" aria-selected="false">Charts</button>
+  <button data-tab="setup" aria-selected="false">Setup</button>
+</nav>
+
+<script>
+// 2026 Pot of Gold — Round 1 tee sheet (Sat Oct 3, Greystone, issued Oct 2), paired 1+2 / 3+4 per group.
+// Each player: name, Handicap Index, assigned tee, official strokes from the tee sheet
+// (the first number in parentheses, already including the 85% allowance).
+// The model uses the official strokes directly; index and tee set the player's scoring ability.
+(function (root) {
+  var P = function (name, index, tee, strokes) { return { name: name, index: index, tee: tee || 'GRY', strokes: strokes == null ? null : strokes, adj: 0 }; };
+  var ROSTER_VERSION = '2026-10-02 tee sheet with official strokes';
+  var TEAMS = [
+    { id: 't01', group: '1A', players: [P('Quinn Kerr', 1.0, 'BL', 1), P('Jamie Janjevich', 10.3, 'GRY', 10)] },
+    { id: 't02', group: '1A', players: [P('Jeff Smith', 6.4, 'GRY', 6), P('Tyson MacLean', 14.4, 'GRY', 14)] },
+    { id: 't03', group: '1B', players: [P('Greg Lewis', 1.2, 'BL', 1), P('Mirco Durante', 13.4, 'GRY', 13)] },
+    { id: 't04', group: '1B', players: [P('Scott Joyce', 9.6, 'GRY', 9), P('Brian Murray', 13.5, 'GRY', 13)] },
+    { id: 't05', group: '2', players: [P('Alex Durante', 9.5, 'GRY', 9), P('Bill Gray', 10.1, 'WHT', 8)] },
+    { id: 't06', group: '2', players: [P('Jeremy Nguyen', 8.9, 'GRY', 8), P('Scott Dawkins', 24.6, 'GRY', 24)] },
+    { id: 't07', group: '3', players: [P('Scott Gamble', 6.7, 'GRY', 6), P('Hugh McMaster', 17.5, 'GRN', 14)] },
+    { id: 't08', group: '3', players: [P('Ryan Kay', 7.3, 'GRY', 7), P('Mark Bertoia', 16.1, 'WHT', 14)] },
+    { id: 't09', group: '4A', players: [P('Jake Scott', -3.5, 'GLD', -2), P('Tim McDonald', 11.0, 'GRY', 10)] },
+    { id: 't10', group: '4A', players: [P('Jay Littlejohn', 10.1, 'WHT', 8), P('Colin Decunha', 14.7, 'GRN', 11)] },
+    { id: 't11', group: '4B', players: [P('Mark Ollerenshaw', 12.5, 'GRY', 12), P('Dave Kelly', 10.0, 'GRY', 9)] },
+    { id: 't12', group: '4B', players: [P('Graham Koshurba', 9.6, 'GRY', 9), P('Trevor Riebot', 12.1, 'GRY', 11)] },
+    { id: 't13', group: '5A', players: [P('Shawn Holloway', 7.3, 'GRY', 7), P('Cory Raymond', 17.2, 'GRY', 16)] },
+    { id: 't14', group: '5A', players: [P('Rick Warren', 5.8, 'GRY', 5), P('Nick Lambevski', 17.0, 'WHT', 15)] },
+    { id: 't15', group: '5B', players: [P('Jonathan Goodman', 5.3, 'GRY', 5), P('Fraser Plant', 14.4, 'WHT', 12)] },
+    { id: 't16', group: '5B', players: [P('Michael Sousa', 7.8, 'GRY', 7), P('Charles Cartwright', 14.2, 'WHT', 12)] },
+    { id: 't17', group: '6', players: [P('Rob Kunka', 6.6, 'GRY', 6), P('Ryan Stevens', 13.2, 'GRY', 12)], mine: true },
+    { id: 't18', group: '6', players: [P('Daniel Rust', 5.7, 'GRY', 5), P('Rohit Mehra', 16.6, 'WHT', 14)] },
+    { id: 't19', group: '7', players: [P('Peter Blazevic', -2.7, 'BL', -3), P('Ed Loeprich', 12.6, 'WHT', 11)] },
+    { id: 't20', group: '7', players: [P('Steve Scannell', 9.4, 'GRY', 9), P('Stephen Mangotich', 17.4, 'WHT', 15)] },
+    { id: 't21', group: '8A', players: [P('Peter White', 3.0, 'GRY', 2), P('Jonathan Riding', 14.5, 'GRY', 14)] },
+    { id: 't22', group: '8A', players: [P('Chris Gerrie', 1.0, 'BL', 1), P('Henry Brinke', 19.0, 'WHT', 17)] },
+    { id: 't23', group: '8B', players: [P("Corey O'Sullivan", 9.5, 'GRY', 9), P('Bob Roselle', 22.1, 'GRY', 21)] },
+    { id: 't24', group: '8B', players: [P('Daryl Brinke', 4.0, 'BL', 4), P('Andrew Grunda', 13.3, 'GRY', 13)] },
+    { id: 't25', group: '9A', players: [P('Alex Abramov', 6.5, 'GRY', 6), P('Arjun Chowdhury', 17.9, 'GRY', 17)] },
+    { id: 't26', group: '9A', players: [P('Trevor Ash', 14.1, 'GRY', 13), P('Trevor Wasney', 10.2, 'GRY', 9)] },
+    { id: 't27', group: '9B', players: [P('Jiten Waghela', 5.5, 'GRY', 5), P('Mike Kluge', 9.9, 'GRY', 9)] },
+    { id: 't28', group: '9B', players: [P('Vince Enright', 4.0, 'GRY', 3), P('Isaiah Sarkissian', 16.7, 'GRY', 16)] },
+    { id: 't29', group: '10A', players: [P('Michael Alderman', 1.8, 'GRY', 1), P('Frank Risi', 12.5, 'WHT', 11)] },
+    { id: 't30', group: '10A', players: [P('James Drew', 7.6, 'GRY', 7), P('Paulo Vieira', 23.0, 'GRY', 22)] },
+    { id: 't31', group: '10B', players: [P('Al Dairou', 3.9, 'GRY', 3), P('David Buchanan', 10.6, 'WHT', 9)] },
+    { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL', -1), P('Mike Smith', 11.1, 'WHT', 9)] }
+  ];
+  TEAMS.version = ROSTER_VERSION;
+  if (typeof module !== 'undefined' && module.exports) module.exports = TEAMS;
+  else root.POT_TEAMS = TEAMS;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+// Pot of Gold — two-man net best-ball (net one-ball) Monte Carlo model.
+// Runs in the browser (inline) and in node (for the strategy report).
+// All handicap math follows the World Handicap System:
+//   Course Handicap = round(Index * Slope/113 + (Rating - Par))
+//   Playing Handicap = round(Course Handicap * Allowance)
+(function (root) {
+  'use strict';
+
+  // Greystone Golf Club (Milton, ON), par 72. Ratings from the public scorecard; slopes are the ones the
+  // committee used for the Oct 3 tee sheet, recovered by reproducing all 64 official stroke counts:
+  // Grey 132 and White 127 are exact; Blue and Gold match the scorecard; Green is 121-125 (123 used).
+  var TEES = {
+    GLD: { name: 'Gold',  rating: 74.0, slope: 143 },
+    BL:  { name: 'Blue',  rating: 72.1, slope: 140 },
+    GRY: { name: 'Grey',  rating: 71.2, slope: 132 },
+    WHT: { name: 'White', rating: 70.4, slope: 127 },
+    GRN: { name: 'Green', rating: 69.2, slope: 123 },
+    RED: { name: 'Red',   rating: 67.5, slope: 125 }
+  };
+  var PAR = 72;
+
+  // Stroke index assignment used for stroke allocation (odd SI on the front,
+  // even on the back — the standard pattern). Only the pairing of strokes
+  // between partners matters for the model, not the exact holes.
+  var STROKE_INDEX = [1, 11, 3, 13, 5, 15, 7, 17, 9, 2, 12, 4, 14, 6, 16, 8, 18, 10];
+
+  // Per-hole score-to-par distributions by course handicap (anchor rows).
+  // Columns: eagle-, birdie, par, bogey, double, triple, quad+
+  // Derived from shot-tracking population data (Arccos/Shot Scope style
+  // distributions), tuned so the average round comes out ~2-6 strokes above
+  // the handicap, as WHS "best 8 of 20" implies.
+  var ANCHORS = [
+    [-3, [0.010, 0.220, 0.620, 0.130, 0.020, 0.000, 0.000]],
+    [ 0, [0.005, 0.160, 0.600, 0.195, 0.035, 0.005, 0.000]],
+    [ 5, [0.002, 0.090, 0.500, 0.310, 0.078, 0.018, 0.002]],
+    [10, [0.001, 0.050, 0.380, 0.380, 0.140, 0.040, 0.009]],
+    [15, [0.000, 0.030, 0.270, 0.400, 0.210, 0.070, 0.020]],
+    [20, [0.000, 0.020, 0.190, 0.360, 0.270, 0.110, 0.050]],
+    [25, [0.000, 0.012, 0.130, 0.320, 0.290, 0.160, 0.088]],
+    [30, [0.000, 0.008, 0.090, 0.270, 0.300, 0.190, 0.142]],
+    [36, [0.000, 0.005, 0.060, 0.220, 0.300, 0.220, 0.195]]
+  ];
+  var SCORE_TO_PAR = [-2, -1, 0, 1, 2, 3, 4];
+
+  function holeDist(h) {
+    if (h <= ANCHORS[0][0]) return ANCHORS[0][1];
+    var last = ANCHORS[ANCHORS.length - 1];
+    if (h >= last[0]) return last[1];
+    for (var i = 0; i < ANCHORS.length - 1; i++) {
+      var a = ANCHORS[i], b = ANCHORS[i + 1];
+      if (h >= a[0] && h <= b[0]) {
+        var t = (h - a[0]) / (b[0] - a[0]);
+        var out = [];
+        for (var k = 0; k < 7; k++) out.push(a[1][k] + t * (b[1][k] - a[1][k]));
+        return out;
+      }
+    }
+    return last[1];
+  }
+
+  function cumulative(p) {
+    var c = [], s = 0;
+    for (var i = 0; i < p.length; i++) { s += p[i]; c.push(s); }
+    c[c.length - 1] = 1.0001;
+    return c;
+  }
+
+  function courseHandicapRaw(index, teeCode) {
+    var tee = TEES[teeCode] || TEES.GRY;
+    return index * tee.slope / 113 + (tee.rating - PAR);
+  }
+  function courseHandicap(index, teeCode) { return Math.round(courseHandicapRaw(index, teeCode)); }
+  // The committee's method (matches every official number on the Oct 3 sheet):
+  // unrounded course handicap x allowance, then rounded.
+  function playingHandicap(index, teeCode, allowance) {
+    return Math.round(courseHandicapRaw(index, teeCode) * (allowance == null ? 0.85 : allowance));
+  }
+
+  // Strokes received per hole for a playing handicap (negative = plus).
+  function strokesByHole(ph) {
+    var s = new Array(18);
+    for (var i = 0; i < 18; i++) {
+      var si = STROKE_INDEX[i];
+      if (ph >= 0) {
+        s[i] = Math.floor(ph / 18) + (si <= (ph % 18) ? 1 : 0);
+      } else {
+        var give = -ph;
+        s[i] = -(Math.floor(give / 18) + ((19 - si) <= (give % 18) ? 1 : 0));
+      }
+    }
+    return s;
+  }
+
+  // Deterministic PRNG (mulberry32) so re-runs with the same inputs agree.
+  function rng(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function gauss(r) {
+    var u = 1 - r(), v = r();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  // teams: [{players:[{index, tee, adj}], ...}]
+  // settings: {allowance (0-1), sims, rounds, payouts:[shares], seed, offsets:[strokes per team]}
+  // Returns {teams:[{ch:[], ph:[], pWin, pMoney, posProb:[], evShare}], ranks: Uint8Array(sims*n), n, sims}
+  function simulate(teams, settings) {
+    var allowance = settings.allowance == null ? 1 : settings.allowance;
+    var sims = settings.sims || 3000;
+    var rounds = settings.rounds || 2;
+    var payouts = settings.payouts || [0.45, 0.25, 0.15, 0.10, 0.05];
+    var seed = settings.seed || 20261003;
+    var r = rng(seed);
+    var n = teams.length;
+
+    // Precompute per player: playing handicap, stroke map, and per-round form sd.
+    var prep = teams.map(function (t) {
+      return t.players.map(function (p) {
+        // Ability: course handicap from index (+ any adjustment) at the player's tee.
+        // Strokes: the official number from the tee sheet when given, else WHS course handicap x allowance.
+        var idx = (p.index || 0) + (p.adj || 0);
+        var ch = courseHandicapRaw(idx, p.tee);
+        var official = p.strokes != null && p.strokes !== '' && !isNaN(Number(p.strokes));
+        var ph = official ? Number(p.strokes) : playingHandicap(p.index || 0, p.tee, allowance);
+        return {
+          ch: ch, ph: ph,
+          strokes: strokesByHole(ph),
+          formSd: 1.5 + 0.12 * Math.max(ch, 0),
+          official: official,
+          active: p.index != null && !isNaN(p.index)
+        };
+      });
+    });
+
+    var offsets = settings.offsets || null; // strokes added to each team's total (Saturday carry-over)
+    var meanScore = new Float64Array(n);   // mean simulated total before offsets
+    var payShare = new Float64Array(n);   // expected share of pot, all positions
+    var posProb = [];                      // posProb[i][k] = P(team i finishes in position k+1 (before ties))
+    for (var i = 0; i < n; i++) posProb.push(new Float64Array(payouts.length));
+    var ranks = new Uint8Array(sims * n);  // finishing position (1-based, ties share the lower number)
+    var shares = new Float32Array(sims * n); // payout share per sim (ties split)
+    var totals = new Float64Array(n);
+    var order = new Array(n);
+
+    for (var s = 0; s < sims; s++) {
+      for (var i2 = 0; i2 < n; i2++) totals[i2] = 0;
+      for (var ti = 0; ti < n; ti++) {
+        var ps = prep[ti];
+        var team = 0;
+        for (var rd = 0; rd < rounds; rd++) {
+          // Per-round form: shift each player's effective handicap.
+          var dists = [], cums = [];
+          for (var pi = 0; pi < ps.length; pi++) {
+            var eff = ps[pi].ch + gauss(r) * ps[pi].formSd;
+            cums.push(cumulative(holeDist(eff)));
+          }
+          for (var h = 0; h < 18; h++) {
+            var best = 99;
+            for (var pj = 0; pj < ps.length; pj++) {
+              if (!ps[pj].active) continue;
+              var u = r(), c = cums[pj], k = 0;
+              while (u > c[k]) k++;
+              var net = SCORE_TO_PAR[k] - ps[pj].strokes[h];
+              if (net < best) best = net;
+            }
+            if (best === 99) best = 6; // nobody active: penalise
+            team += best;
+          }
+        }
+        meanScore[ti] += team / sims;
+        totals[ti] = team + (offsets ? offsets[ti] || 0 : 0);
+      }
+      // Rank (lower is better), split ties.
+      for (var o = 0; o < n; o++) order[o] = o;
+      order.sort(function (a, b) { return totals[a] - totals[b]; });
+      var pos = 0;
+      while (pos < n) {
+        var end = pos;
+        while (end + 1 < n && totals[order[end + 1]] === totals[order[pos]]) end++;
+        var cnt = end - pos + 1, sumPay = 0;
+        for (var q = pos; q <= end; q++) sumPay += (q < payouts.length ? payouts[q] : 0);
+        var each = sumPay / cnt;
+        for (var q2 = pos; q2 <= end; q2++) {
+          var t2 = order[q2];
+          ranks[s * n + t2] = pos + 1;
+          shares[s * n + t2] = each;
+          payShare[t2] += each;
+          if (pos < payouts.length) posProb[t2][pos] += 1 / cnt;
+        }
+        pos = end + 1;
+      }
+    }
+
+    var out = teams.map(function (t, i) {
+      var pw = 0, pm = 0;
+      for (var k = 0; k < payouts.length; k++) { posProb[i][k] /= sims; pm += posProb[i][k]; }
+      pw = posProb[i][0];
+      return {
+        ch: prep[i].map(function (p) { return Math.round(p.ch); }),
+        ph: prep[i].map(function (p) { return p.ph; }),
+        official: prep[i].map(function (p) { return p.official; }),
+        pWin: pw,
+        pMoney: pm,
+        posProb: Array.prototype.slice.call(posProb[i]),
+        potShare: payShare[i] / sims,  // expected fraction of the pot this team collects
+        meanScore: meanScore[i]        // expected net total vs par over the simulated rounds (no offset)
+      };
+    });
+    return { teams: out, ranks: ranks, shares: shares, n: n, sims: sims };
+  }
+
+  var api = { TEES: TEES, PAR: PAR, courseHandicap: courseHandicap, courseHandicapRaw: courseHandicapRaw, playingHandicap: playingHandicap, strokesByHole: strokesByHole, holeDist: holeDist, simulate: simulate };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.PotModel = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  var M = window.PotModel, BASE = window.POT_TEAMS;
+  var LS_KEY = 'pog-board-v1';
+  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'reimburse', potOverride: 0, payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
+  var state, sim = null, simKey = '';
+  var ui = { tab: 'board', sort: 'model', filter: 'all', open: {} };
+  var db = null, saveTimer = null, writeChain = Promise.resolve(), rosterChanged = false;
+
+  function freshTeam(b) {
+    return { id: b.id, group: b.group, mine: !!b.mine,
+      players: b.players.map(function (p) { return { name: p.name, index: p.index, tee: p.tee, strokes: p.strokes == null ? null : p.strokes, adj: 0 }; }),
+      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null, resaleFrac: 0, resaleAmt: 0 };
+  }
+  function freshState() {
+    return { v: 2, updatedAt: Date.now(), rosterVersion: BASE.version, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
+  }
+  function migrate(d) {
+    var s = freshState();
+    if (!d || typeof d !== 'object') return s;
+    s.updatedAt = d.updatedAt || 0;
+    if (d.settings) for (var k in DEFAULT_SETTINGS) if (d.settings[k] != null) s.settings[k] = d.settings[k];
+    // When the roster file changes (final handicaps), names, indexes and tees come from the new roster;
+    // adjustments and every auction entry are kept.
+    var sameRoster = d.rosterVersion === BASE.version;
+    if (!sameRoster) rosterChanged = true;
+    if (Array.isArray(d.teams)) {
+      var byId = {}; d.teams.forEach(function (t) { byId[t.id] = t; });
+      s.teams = s.teams.map(function (t) {
+        var o = byId[t.id]; if (!o) return t;
+        for (var key in t) if (o[key] !== undefined && key !== 'players') t[key] = o[key];
+        if (Array.isArray(o.players)) t.players = t.players.map(function (p, i) {
+          var q = o.players[i] || {};
+          if (!sameRoster) return { name: p.name, index: p.index, tee: p.tee, strokes: p.strokes, adj: Number(q.adj) || 0 };
+          return { name: q.name != null ? q.name : p.name, index: q.index != null ? Number(q.index) : p.index, tee: q.tee || p.tee,
+            strokes: q.strokes !== undefined ? q.strokes : p.strokes, adj: Number(q.adj) || 0 };
+        });
+        return t;
+      });
+    }
+    return s;
+  }
+
+  // ---------- persistence ----------
+  function loadLocal() { try { var raw = localStorage.getItem(LS_KEY); return raw ? migrate(JSON.parse(raw)) : null; } catch (e) { return null; } }
+  function saveLocal() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {} }
+  function setSync(txt, detail) { document.getElementById('sync').textContent = txt; document.getElementById('syncDetail').textContent = detail || txt; }
+  function touch() {
+    state.updatedAt = Date.now();
+    saveLocal();
+    if (db) { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 600); setSync('Saving'); }
+  }
+  function flush() {
+    if (!db) return;
+    var body = JSON.parse(JSON.stringify(state));
+    writeChain = writeChain.then(function () { return db.doc('board/main').set(body); })
+      .then(function () { setSync('Synced', 'Synced to your Claude account. Open this page on any device to see the same board.'); })
+      .catch(function (e) { setSync('Save failed', 'Save failed (' + (e && e.code) + '). Changes are kept on this device; try again by editing any field.'); });
+  }
+  function initDb() {
+    var p = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('db') : Promise.resolve(null);
+    p.then(function (ns) {
+      db = ns;
+      if (!db) { setSync('This device only', 'Not signed in to shared storage. Entries are kept in this browser only.'); return; }
+      db.doc('board/main').onSnapshot(function (snap) {
+        if (snap.metadata.hasPendingWrites) return;
+        if (!snap.exists) { flush(); return; }
+        var d = snap.data();
+        if ((d.updatedAt || 0) > state.updatedAt) {
+          state = migrate(d); saveLocal();
+          ensureSim(); renderAll();
+          if (rosterChanged) { rosterChanged = false; touch(); }
+        }
+        setSync('Synced', 'Synced to your Claude account. Open this page on any device to see the same board.');
+      }, function (e) { setSync('Sync off', 'Live sync stopped (' + (e && e.code) + '). Reload to reconnect. Entries stay on this device.'); });
+    }).catch(function () { db = null; setSync('This device only'); });
+  }
+
+  // ---------- model ----------
+  var baseSim = null, baseKey = '';
+  function baseFingerprint() {
+    var s = state.settings;
+    return JSON.stringify([s.allowance, s.sims, s.rounds, s.payouts, state.teams.map(function (t) { return t.players.map(function (p) { return [p.index, p.tee, p.adj, p.strokes]; }); })]);
+  }
+  function simFingerprint() {
+    return baseFingerprint() + JSON.stringify([state.settings.satWeight, state.teams.map(function (t) { return t.satNet; })]);
+  }
+  // Saturday carry-over: a team's Saturday net score is evidence about its true strength. The model shifts
+  // the team's expected Calcutta total by satWeight% of the gap between what it shot and what the model expected.
+  function satOffsets() {
+    var s = state.settings, w = (Number(s.satWeight) || 0) / 100, rounds = Number(s.rounds) || 1, any = false;
+    var off = state.teams.map(function (t, i) {
+      if (t.satNet == null || t.satNet === '' || isNaN(Number(t.satNet))) return 0;
+      any = true;
+      var expectedRound = baseSim.teams[i].meanScore / rounds;
+      return w * (Number(t.satNet) - expectedRound) * rounds;
+    });
+    return any && w > 0 ? off : null;
+  }
+  function ensureSim() {
+    var s = state.settings;
+    var pay = s.payouts.map(function (x) { return (Number(x) || 0) / 100; });
+    var opts = { allowance: Number(s.allowance), sims: Number(s.sims), rounds: Number(s.rounds) || 1, payouts: pay };
+    var bk = baseFingerprint();
+    if (bk !== baseKey || !baseSim) { baseKey = bk; baseSim = M.simulate(state.teams, opts); simKey = ''; }
+    var key = simFingerprint();
+    if (key === simKey && sim) return;
+    simKey = key;
+    var off = satOffsets();
+    if (!off) { sim = baseSim; return; }
+    opts.offsets = off;
+    sim = M.simulate(state.teams, opts);
+  }
+
+  // ---------- economics ----------
+  // Money a team adds to the pot. Reserve beats the hammer: the team keeps 100% at the hammer price plus $50.
+  // Buyback: in 'match' mode the team's 50% money goes into the pot (pot doubles for that team);
+  // in 'reimburse' mode it goes to the auction winner and the pot only holds the hammer price.
+  function contribution(t, s, avgSold) {
+    if (t.sold) {
+      var b = Number(t.bid) || 0;
+      if (t.reserveWon) return b + 50;
+      return b * (t.buyback && s.bbMode === 'match' ? 2 : 1);
+    }
+    if (s.auto && avgSold != null) return avgSold; // average of what sold teams actually put in, buybacks included
+    return (Number(s.unsold) || 0) * (s.unsoldBB ? 2 : 1);
+  }
+  function econ() {
+    var s = state.settings, teams = state.teams;
+    var soldC = teams.filter(function (t) { return t.sold && (Number(t.bid) > 0 || (t.reserveWon && Number(t.reserve) > 0)); }).map(function (t) { return contribution(t, s, null); });
+    var avgSold = soldC.length >= 3 ? soldC.reduce(function (a, b) { return a + b; }, 0) / soldC.length : null;
+    var pot = 0;
+    teams.forEach(function (t) { pot += contribution(t, s, avgSold); });
+    if (Number(s.potOverride) > 0) pot = Number(s.potOverride);
+    var netPot = pot * (1 - (Number(s.rake) || 0) / 100);
+    // Bidder break-even as a fraction of fair value. With a matched buyback you pay the hammer for 50%,
+    // so break-even is half of fair. With a reimbursed buyback half your money comes back, so break-even stays at fair.
+    var bbFactor = (s.assumeBB && s.bbMode === 'match') ? 0.5 : 1;
+    var rows = teams.map(function (t, i) {
+      var r = sim.teams[i];
+      var fair = r.potShare * netPot;
+      var breakEven = fair * bbFactor;
+      var cap = breakEven * (1 - (Number(s.edge) || 0) / 100);
+      var contrib = contribution(t, s, avgSold);
+      var implied = pot > 0 ? contrib / pot : 0;
+      var own = 0, cost = 0;
+      if (t.sold) {
+        var bid = Number(t.bid) || 0, myIn = Number(t.myIn) || 0;
+        if (t.reserveWon) {
+          if (t.mine) { own = 0.5; cost = (bid + 50) / 2; }
+        } else {
+          if (bid > 0 && myIn > 0) {
+            own += (myIn / bid) * (t.buyback ? 0.5 : 1);
+            cost += (t.buyback && s.bbMode === 'reimburse') ? myIn / 2 : myIn;
+          }
+          if (t.mine && t.buyback) { own += 0.25; cost += s.bbMode === 'reimburse' ? bid / 4 : bid / 2; }
+        }
+      }
+      // Resale: part of my stake sold on to other players after the auction.
+      var grossOwn = own, grossCost = cost, resaleFrac = t.sold ? Math.min(own, (Number(t.resaleFrac) || 0) / 100) : 0, resaleAmt = t.sold ? Number(t.resaleAmt) || 0 : 0;
+      own -= resaleFrac; cost -= resaleAmt;
+      var ev = own * fair - cost;
+      return { i: i, t: t, r: r, fair: fair, breakEven: breakEven, cap: cap, contrib: contrib, implied: implied, own: own, cost: cost, ev: ev,
+        grossOwn: grossOwn, grossCost: grossCost, resaleFrac: resaleFrac, resaleAmt: resaleAmt, edge: implied > 0 ? r.potShare / implied - 1 : null };
+    });
+    var totalCost = 0, totalEv = 0, totalPlan = 0, totalResale = 0;
+    rows.forEach(function (x) { totalCost += x.cost; totalEv += x.ev; totalResale += x.resaleAmt; if (!x.t.sold) totalPlan += Number(x.t.plan) || 0; });
+    // Outcome distribution of my net result from the simulation.
+    var n = sim.n, sims = sim.sims, nets = new Float64Array(sims), profit = 0;
+    for (var k = 0; k < sims; k++) {
+      var ret = 0;
+      for (var j = 0; j < n; j++) if (rows[j].own > 0) ret += rows[j].own * sim.shares[k * n + j] * netPot;
+      nets[k] = ret - totalCost; if (nets[k] > 0) profit++;
+    }
+    var sorted = Array.prototype.slice.call(nets).sort(function (a, b) { return a - b; });
+    return { pot: pot, netPot: netPot, avgSold: avgSold, rows: rows, totalCost: totalCost, totalEv: totalEv, totalPlan: totalPlan, totalResale: totalResale,
+      pProfit: totalCost > 0 ? profit / sims : 0, p10: sorted[Math.floor(sims * 0.1)] || 0, p50: sorted[Math.floor(sims * 0.5)] || 0, p90: sorted[Math.floor(sims * 0.9)] || 0 };
+  }
+
+  // ---------- formatting ----------
+  function money(x, signed) { var v = Math.round(x || 0); var s = '$' + Math.abs(v).toLocaleString('en-CA'); if (v < 0) return '-' + s; return (signed && v > 0 ? '+' : '') + s; }
+  function pct(x, d) { return (100 * (x || 0)).toFixed(d == null ? 1 : d) + '%'; }
+  function shortName(p) { var parts = (p.name || '').trim().split(/\s+/); return parts.length > 1 ? parts[parts.length - 1] : parts[0]; }
+  function teamLabel(t) { return t.players.map(shortName).join(' / '); }
+  function hcp(x) { return x < 0 ? '+' + Math.abs(x) : String(x); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function verdict(x) {
+    var t = x.t;
+    if (t.sold) {
+      if (t.reserveWon) return { cls: t.mine ? 'accent' : 'neutral', txt: (t.mine ? 'WE KEPT 100% AT ' : 'RESERVED AT ') + money((Number(t.bid) || 0) + 50) };
+      if (x.own > 0) return { cls: x.ev >= 0 ? 'good' : 'warn', txt: 'MINE ' + pct(x.own, 0) + ' · EV ' + money(x.ev, true) };
+      if (x.edge != null) return { cls: x.edge > 0.15 ? 'good' : x.edge < -0.15 ? 'bad' : 'neutral', txt: 'SOLD ' + money(t.bid) + (x.edge > 0 ? ' · cheap' : ' · rich') };
+      return { cls: 'neutral', txt: 'SOLD ' + money(t.bid) };
+    }
+    var live = Number(t.live) || 0;
+    if (live <= 0) return { cls: 'neutral', txt: 'CAP ' + money(x.cap) };
+    if (live <= x.cap) return { cls: 'good', txt: 'BID · ' + money(x.cap - live) + ' room' };
+    if (live <= x.breakEven) return { cls: 'warn', txt: 'STRETCH · over cap' };
+    return { cls: 'bad', txt: 'PASS · over fair' };
+  }
+
+  // ---------- render ----------
+  function renderHeader(e) {
+    document.getElementById('hPot').textContent = money(e.pot);
+    document.getElementById('hSpent').textContent = money(e.totalCost);
+    document.getElementById('hBudgetLbl').textContent = 'Spent of ' + money(state.settings.budget);
+    var m = document.getElementById('hMeter'); var frac = state.settings.budget > 0 ? e.totalCost / state.settings.budget : 0;
+    m.style.width = Math.min(100, frac * 100) + '%'; m.className = frac > 1 ? 'over' : '';
+    var ev = document.getElementById('hEv'); ev.textContent = money(e.totalEv, true); ev.style.color = e.totalEv > 0 ? 'var(--good)' : e.totalEv < 0 ? 'var(--bad)' : '';
+  }
+
+  function sortedRows(e) {
+    var rows = e.rows.slice();
+    var rankByModel = e.rows.slice().sort(function (a, b) { return b.r.potShare - a.r.potShare; });
+    rankByModel.forEach(function (x, i) { x.rank = i + 1; });
+    if (ui.sort === 'model') rows.sort(function (a, b) { return a.rank - b.rank; });
+    else if (ui.sort === 'price') rows.sort(function (a, b) { return (Number(b.t.bid) || 0) - (Number(a.t.bid) || 0) || a.rank - b.rank; });
+    else if (ui.sort === 'edge') rows.sort(function (a, b) {
+      function score(x) { if (x.t.sold) return x.edge == null ? -9 : x.edge; var live = Number(x.t.live) || 0; return live > 0 ? (x.cap / live - 1) : (x.cap / Math.max(1, state.settings.unsold) - 1); }
+      return score(b) - score(a);
+    });
+    if (ui.filter === 'sold') rows = rows.filter(function (x) { return x.t.sold; });
+    if (ui.filter === 'unsold') rows = rows.filter(function (x) { return !x.t.sold; });
+    if (ui.filter === 'mine') rows = rows.filter(function (x) { return x.t.mine || x.cost > 0 || Number(x.t.plan) > 0 || Number(x.t.myIn) > 0; });
+    return rows;
+  }
+
+  function cardHtml(x) {
+    var t = x.t, r = x.r, v = verdict(x);
+    var ph = r.ph;
+    var tees = M.TEES;
+    var playersHtml = t.players.map(function (p, i) {
+      return '<div><b>' + esc(p.name) + '</b> ' + hcp(p.index) + (p.adj ? ' (' + (p.adj > 0 ? '+' : '') + p.adj + ')' : '') + ' <span class="muted">' + (tees[p.tee] ? tees[p.tee].name : p.tee) + ' · ' + (r.official && r.official[i] ? 'gets ' : 'plays ') + hcp(ph[i]) + (r.official && r.official[i] ? '' : ' (est.)') + '</span></div>';
+    }).join('');
+    var spread = Math.abs(ph[0] - ph[1]);
+    var open = ui.open[t.id] ? ' open' : '';
+    var bbMode = state.settings.bbMode;
+    var mineBlock = t.mine ? '<label class="check wide"><input type="checkbox" data-f="buyback" ' + (t.buyback ? 'checked' : '') + '> We took the 50% buyback (my cost: ' + (bbMode === 'reimburse' ? 'a quarter' : 'half') + ' of the hammer)</label>' :
+      '<label class="check"><input type="checkbox" data-f="buyback" ' + (t.buyback ? 'checked' : '') + '> Team took the 50% buyback</label>';
+    var reserveHint = t.mine ? '<div class="small muted wide" style="margin-top:-2px">Suggested reserve ' + money(x.fair * (1 - (Number(state.settings.edge) || 0) / 100)) + ' (fair value less target edge). If the hammer lands below it you keep 100% at hammer + $50.</div>' : '';
+    var reserveBlock = '<label>' + (t.mine ? 'Our sealed reserve' : 'Their reserve (if known)') + ' <span class="money"><input type="number" data-f="reserve" step="50" min="0" value="' + (t.reserve || '') + '" placeholder="0"></span></label>' +
+      '<label class="check"><input type="checkbox" data-f="reserveWon" ' + (t.reserveWon ? 'checked' : '') + '> Reserve beat the hammer (team keeps 100% at hammer + $50)</label>' + reserveHint;
+    var satBlock = '<label>Saturday net (vs par) <input type="number" data-f="satNet" step="1" value="' + (t.satNet == null ? '' : t.satNet) + '" placeholder="e.g. -8"></label>' +
+      '<div class="small muted" style="align-self:end;padding-bottom:10px">Model expected ' + (r.meanScore / (Number(state.settings.rounds) || 1) >= 0 ? '+' : '') + (r.meanScore / (Number(state.settings.rounds) || 1)).toFixed(1) + ' per round' + (t.satNet != null && t.satNet !== '' ? ' · carry-over applied' : '') + '</div>';
+    var myInBlock = t.mine ? '' : '<label>My $ in the winning bid <span class="money"><input type="number" data-f="myIn" step="50" min="0" value="' + (t.myIn || '') + '" placeholder="0"></span></label>';
+    var market = t.sold && x.edge != null ? '<span><span class="k">Market share</span> ' + pct(x.implied) + ' vs model ' + pct(r.potShare) + ' <b>(' + (x.edge > 0 ? '+' : '') + Math.round(x.edge * 100) + '%)</b></span>' : '';
+    var stake = x.grossOwn > 0 ? '<span><span class="k">My stake</span> ' + pct(x.own, 0) + ' for ' + money(x.cost) + (x.resaleFrac > 0 ? ' after selling ' + pct(x.resaleFrac, 0) + ' for ' + money(x.resaleAmt) : '') + ' · EV <b>' + money(x.ev, true) + '</b></span>' : '';
+    var showResale = t.mine || Number(t.myIn) > 0;
+    var resaleBlock = showResale ? '<label>My share sold on (% of team) <input type="number" data-f="resaleFrac" step="5" min="0" max="100" value="' + (t.resaleFrac || '') + '" placeholder="0"></label>' +
+      '<label>I received <span class="money"><input type="number" data-f="resaleAmt" step="50" min="0" value="' + (t.resaleAmt || '') + '" placeholder="0"></span></label>' +
+      (x.grossOwn > 0 ? '<div class="small muted wide" style="margin-top:-2px">' + (t.mine ? 'Enter your half: if the team sells 50% for $1,000, that is 25% and $500 here. ' : '') + 'Fair price for a slice of the team: 25% = ' + money(0.25 * x.fair) + ', 50% = ' + money(0.5 * x.fair) + '. Selling at fair returns cash and leaves EV unchanged; selling above fair adds EV. You hold ' + pct(x.grossOwn, 0) + ' at ' + money(x.grossCost) + '; selling half of that at fair (' + money(0.5 * x.grossOwn * x.fair) + ') leaves ' + money(x.grossCost - 0.5 * x.grossOwn * x.fair) + ' at risk for ' + pct(0.5 * x.grossOwn, 0) + '.</div>' : '') : '';
+    return '<article class="card' + (t.mine ? ' mine' : '') + (t.sold ? ' sold' : '') + '" data-id="' + t.id + '">' +
+      '<div class="card-head"><span class="rank">#' + x.rank + '</span><div class="tname">' + esc(teamLabel(t)) + '<small>' + esc(t.group) + (t.mine ? ' · my team' : '') + '</small></div><span class="pill ' + v.cls + '">' + esc(v.txt) + '</span></div>' +
+      '<div class="players">' + playersHtml + '</div>' +
+      '<div class="model-row">' +
+        '<div><span class="eyebrow">Win</span><span class="v num">' + pct(r.pWin) + '</span></div>' +
+        '<div><span class="eyebrow">Top 5</span><span class="v num">' + pct(r.pMoney) + '</span></div>' +
+        '<div><span class="eyebrow">Fair (100%)</span><span class="v num">' + money(x.fair) + '</span></div>' +
+        '<div><span class="eyebrow">Cap' + (x.breakEven < x.fair ? ' (½ fair less edge)' : ' (fair less edge)') + '</span><span class="v num">' + money(x.cap) + '</span></div>' +
+      '</div>' +
+      '<div class="inputs">' +
+        (t.sold ? '' : '<label>Live high bid <span class="money"><input type="number" data-f="live" step="50" min="0" value="' + (t.live || '') + '" placeholder="0"></span></label>') +
+        (t.sold ? '' : '<label>My plan <span class="money"><input type="number" data-f="plan" step="50" min="0" value="' + (t.plan || '') + '" placeholder="0"></span></label>') +
+        '<label>Sold for <span class="money"><input type="number" data-f="bid" step="50" min="0" value="' + (t.bid || '') + '" placeholder="0"></span></label>' +
+        '<label class="check"><input type="checkbox" data-f="sold" ' + (t.sold ? 'checked' : '') + '> Sold (hammer down)</label>' +
+        mineBlock + myInBlock + reserveBlock + resaleBlock + satBlock +
+      '</div>' +
+      '<div class="verdict"><span><span class="k">Combined</span> ' + (ph[0] + ph[1]) + ' strokes · spread ' + spread + '</span>' + market + stake + '</div>' +
+      '<details' + open + ' data-id="' + t.id + '"><summary>Edit players / note</summary>' +
+        t.players.map(function (p, i) {
+          return '<div class="edit-grid">' +
+            '<label class="name">Name <input type="text" data-p="' + i + '" data-f="name" value="' + esc(p.name) + '"></label>' +
+            '<label>Index <input type="number" data-p="' + i + '" data-f="index" step="0.1" value="' + p.index + '"></label>' +
+            '<label>Tee <select data-p="' + i + '" data-f="tee">' + Object.keys(tees).map(function (k) { return '<option value="' + k + '"' + (p.tee === k ? ' selected' : '') + '>' + tees[k].name + '</option>'; }).join('') + '</select></label>' +
+            '<label>Strokes <input type="number" data-p="' + i + '" data-f="strokes" step="1" value="' + (p.strokes == null ? '' : p.strokes) + '" placeholder="auto" title="Official strokes from the tee sheet. Leave blank to estimate from index, tee and allowance."></label>' +
+            '<label>Adj <input type="number" data-p="' + i + '" data-f="adj" step="0.5" value="' + (p.adj || 0) + '" title="Change to his scoring ability only, in strokes of index: negative if he plays better than his number. Does not change his strokes."></label>' +
+          '</div>';
+        }).join('') +
+        '<label style="display:block;margin-top:8px;font-size:12px;color:var(--muted);font-weight:600">Note<textarea data-f="note" placeholder="Who is in the bid group, side deals, anything to remember">' + esc(t.note) + '</textarea></label>' +
+      '</details>' +
+    '</article>';
+  }
+
+  var rendering = false, renderTimer = null;
+  function renderBoard(e) {
+    var rows = sortedRows(e);
+    var host = document.getElementById('cards');
+    rendering = true;
+    try { host.innerHTML = rows.map(cardHtml).join('') || '<p class="muted">No teams match this filter.</p>'; }
+    finally { rendering = false; }
+  }
+  // Re-render on the next tick so a change event and the tap that caused it both land on the same DOM.
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(function () { renderTimer = null; renderAll(); }, 0);
+  }
+
+  function renderBets(e) {
+    document.getElementById('bSpent').textContent = money(e.totalCost) + (e.totalResale ? ' net' : '');
+    document.getElementById('bLeft').textContent = money(Math.max(0, state.settings.budget - e.totalCost)) + ' left of ' + money(state.settings.budget) + (e.totalPlan ? ' · ' + money(e.totalPlan) + ' still planned' : '');
+    var ev = document.getElementById('bEv'); ev.textContent = money(e.totalEv, true); ev.className = 'v num ' + (e.totalEv > 0 ? 'pos' : e.totalEv < 0 ? 'neg' : '');
+    document.getElementById('bRet').textContent = e.totalCost > 0 ? 'expected return ' + money(e.totalCost + e.totalEv) + ' on ' + money(e.totalCost) : 'no money committed yet';
+    document.getElementById('bProb').textContent = pct(e.pProfit, 0);
+    document.getElementById('bRange').textContent = e.totalCost > 0 ? money(e.p10, true) + ' to ' + money(e.p90, true) : '$0';
+    var mine = e.rows.filter(function (x) { return x.grossOwn > 0 || x.grossCost > 0; });
+    var tb = document.querySelector('#betsTable tbody');
+    tb.innerHTML = mine.map(function (x) {
+      return '<tr><td>' + esc(teamLabel(x.t)) + (x.t.mine ? ' <span class="pill accent">mine</span>' : '') + '</td><td class="r num">' + money(x.cost) + '</td><td class="r num">' + pct(x.own, 0) + '</td><td class="r num">' + (x.resaleFrac > 0 ? pct(x.resaleFrac, 0) + ' / ' + money(x.resaleAmt) : '') + '</td><td class="r num">' + money(x.own * x.fair) + '</td><td class="r num">' + money(x.ev, true) + '</td><td class="r num">' + pct(x.r.pWin) + '</td></tr>';
+    }).join('') + (mine.length ? '<tr class="total"><td>Total</td><td class="r num">' + money(e.totalCost) + '</td><td></td><td class="r num">' + (e.totalResale ? money(e.totalResale) : '') + '</td><td class="r num">' + money(e.totalCost + e.totalEv) + '</td><td class="r num">' + money(e.totalEv, true) + '</td><td></td></tr>' : '<tr><td colspan="7" class="muted">Nothing owned yet. Mark a team sold and enter your dollars in the winning bid, or tick the buyback on your own team.</td></tr>');
+    renderReserve(e);
+    renderResaleCalc(e);
+    var plans = e.rows.filter(function (x) { return !x.t.sold && Number(x.t.plan) > 0; }).sort(function (a, b) { return Number(b.t.plan) - Number(a.t.plan); });
+    var pb = document.querySelector('#planTable tbody');
+    pb.innerHTML = plans.map(function (x) {
+      var p = Number(x.t.plan), st = p <= x.cap ? '<span class="pill good">inside cap</span>' : p <= x.breakEven ? '<span class="pill warn">over cap</span>' : '<span class="pill bad">over fair</span>';
+      return '<tr><td>' + esc(teamLabel(x.t)) + '</td><td class="r num">' + money(p) + '</td><td class="r num">' + money(x.cap) + '</td><td class="r num">' + money(x.fair) + '</td><td>' + st + '</td></tr>';
+    }).join('') + (plans.length ? '<tr class="total"><td>Planned</td><td class="r num">' + money(e.totalPlan) + '</td><td colspan="3" class="muted">' + (e.totalCost + e.totalPlan > state.settings.budget ? 'Plans plus committed money exceed the budget by ' + money(e.totalCost + e.totalPlan - state.settings.budget) : money(state.settings.budget - e.totalCost - e.totalPlan) + ' unallocated') + '</td></tr>' : '<tr><td colspan="5" class="muted">No plans yet. Add a plan amount on any unsold team card.</td></tr>');
+  }
+
+  // What happens to my team at each hammer price, given my sealed reserve and the current fair value.
+  // Below the reserve: we keep 100% at hammer + $50. At or above it: we are offered 50% at half the hammer
+  // (reimburse mode) or for a matching amount into the pot (match mode); we take it only when it pays.
+  function renderReserve(e) {
+    var mine = e.rows.filter(function (x) { return x.t.mine; })[0];
+    var intro = document.getElementById('resvIntro'), tb = document.querySelector('#resvTable tbody');
+    if (!mine) { intro.textContent = 'No team is marked as mine.'; tb.innerHTML = ''; return; }
+    var s = state.settings, V = mine.fair, R = Number(mine.t.reserve) || 0, reimburse = s.bbMode !== 'match';
+    var bestR = Math.max(0, Math.round((V - 50) / 50) * 50);
+    var avgEl = document.getElementById('rAvg'), resEl = document.getElementById('rRes');
+    if (document.activeElement !== avgEl) avgEl.value = s.unsold;
+    if (document.activeElement !== resEl) resEl.value = R || '';
+    document.getElementById('rPot').textContent = 'Pot estimate ' + money(e.pot) + (Number(s.potOverride) > 0 ? ' (override set in Setup)' : e.avgSold != null && s.auto ? ' (from the average of teams sold so far)' : ' (32 teams at the average price, plus teams already sold)') + '. Your team\'s share of the pot is ' + pct(mine.r.potShare) + ', so its fair value is about ' + (mine.r.potShare * 32 * 100).toFixed(0) + '% of the average team price.';
+    intro.innerHTML = 'Fair value of 100% of ' + esc(teamLabel(mine.t)) + ' is <b>' + money(V) + '</b> at this pot. Your reserve is <b>' + (R ? money(R) : 'not set') + '</b>' + (R ? ' (each partner\'s worst case ' + money(R / 2 + 25) + ')' : '') + '. Break-even reserve is fair value less $50, about <b>' + money(bestR) + '</b>. A reserve above that buys certainty of ownership at the cost of overpaying when the hammer lands between fair value and the reserve.';
+    // Reserve against a range of pot sizes: where does the current reserve overpay, and by how much at most?
+    var pb = document.querySelector('#potTable tbody'), share = mine.r.potShare, rake = 1 - (Number(s.rake) || 0) / 100;
+    var avgs = [1000, 1500, 2000, 2500, 3000, 3500];
+    pb.innerHTML = avgs.map(function (a) {
+      var pot = a * 32, fv = share * pot * rake, txt, cls;
+      if (!R) { txt = 'set a reserve'; cls = 'neutral'; }
+      else if (R + 50 <= fv) { txt = 'never overpays; you lose 100% if the hammer tops ' + money(R); cls = 'good'; }
+      else { txt = 'overpays if the hammer lands ' + money(fv) + ' to ' + money(R) + '; worst case ' + money(R + 50 - fv) + ' (' + money((R + 50 - fv) / 2) + ' each)'; cls = R + 50 - fv > fv * 0.5 ? 'bad' : 'warn'; }
+      return '<tr><td class="r num">' + money(a) + '</td><td class="r num">' + money(pot) + '</td><td class="r num">' + money(fv) + '</td><td><span class="pill ' + cls + '">' + txt + '</span></td></tr>';
+    }).join('');
+    var rows = [], prices = [];
+    for (var b = 500; b <= 4000; b += 250) prices.push(b);
+    if (R > 0 && prices.indexOf(R) < 0) { prices.push(R); prices.sort(function (a, c) { return a - c; }); }
+    prices.forEach(function (b) {
+      var own, each, ev, outcome;
+      if (R > 0 && b < R) { own = 1; each = (b + 50) / 2; ev = V - b - 50; outcome = 'Keep 100% at ' + money(b + 50); }
+      else {
+        var bbCost = reimburse ? b / 2 : b, bbEv = 0.5 * V - bbCost;
+        if (bbEv > 0) { own = 0.5; each = bbCost / 2; ev = bbEv; outcome = 'Take 50% for ' + money(bbCost); }
+        else { own = 0; each = 0; ev = 0; outcome = 'Decline 50% (' + money(bbCost) + ' is over value)'; }
+      }
+      var cls = ev > 0 ? 'good' : ev < 0 ? 'bad' : 'neutral';
+      var hedge = '';
+      if (own === 1) { var hEach = (b + 50 - b / 2) / 2, hEv = 0.5 * V - (b + 50 - b / 2); hedge = money(hEach) + ' / <span class="pill ' + (hEv > 0 ? 'good' : hEv < 0 ? 'bad' : 'neutral') + '">' + money(hEv / 2, true) + '</span>'; }
+      rows.push('<tr><td class="r num">' + money(b) + (b === R ? ' <span class="pill accent">reserve</span>' : '') + '</td><td>' + outcome + '</td><td class="r num">' + pct(own, 0) + '</td><td class="r num">' + money(each) + '</td><td class="r num"><span class="pill ' + cls + '">' + money(ev / 2, true) + '</span></td><td class="r num">' + hedge + '</td></tr>');
+    });
+    tb.innerHTML = rows.join('');
+  }
+
+  var rc = { team: null, hammer: null, own: null, cost: null, markup: 25, touched: false };
+  function renderResaleCalc(e) {
+    var sel = document.getElementById('rcTeam');
+    if (!sel.options.length) {
+      sel.innerHTML = e.rows.map(function (x) { return '<option value="' + x.t.id + '">' + esc(teamLabel(x.t)) + (x.t.mine ? ' (my team)' : '') + '</option>'; }).join('');
+      var firstPos = e.rows.filter(function (x) { return x.grossOwn > 0; })[0] || e.rows.filter(function (x) { return x.t.mine; })[0];
+      rc.team = firstPos ? firstPos.t.id : e.rows[0].t.id;
+    }
+    sel.value = rc.team;
+    var x = e.rows.filter(function (r) { return r.t.id === rc.team; })[0]; if (!x) return;
+    // Defaults from the live position, unless the user has typed over them.
+    var defHammer = Number(x.t.bid) || Number(x.t.live) || Math.round(state.settings.unsold);
+    var defOwn = x.grossOwn > 0 ? x.own * 100 : 100;
+    var defCost = x.grossOwn > 0 ? x.cost : defHammer;
+    if (!rc.touched) { rc.hammer = defHammer; rc.own = defOwn; rc.cost = defCost; }
+    var H = document.getElementById('rcHammer'), O = document.getElementById('rcOwn'), C = document.getElementById('rcCost'), Mk = document.getElementById('rcMarkup');
+    if (document.activeElement !== H) H.value = Math.round(rc.hammer);
+    if (document.activeElement !== O) O.value = Math.round(rc.own);
+    if (document.activeElement !== C) C.value = Math.round(rc.cost);
+    if (document.activeElement !== Mk) Mk.value = rc.markup;
+    var V = x.fair, own = (Number(rc.own) || 0) / 100, cost = Number(rc.cost) || 0, hammer = Number(rc.hammer) || 0, mk = (Number(rc.markup) || 0) / 100;
+    var evNow = own * V - cost;
+    document.getElementById('rcSummary').innerHTML = 'You hold <b>' + pct(own, 0) + '</b> of ' + esc(teamLabel(x.t)) + ' at a net cost of <b>' + money(cost) + '</b>. Fair value of 100% is <b>' + money(V) + '</b> at the current pot, so your stake is worth ' + money(own * V) + ' and your EV is <b>' + money(evNow, true) + '</b>. Selling at fair keeps that EV and returns cash. Selling at the ask (fair + ' + Math.round(mk * 100) + '%) adds ' + Math.round(mk * 100) + '% of the slice\'s fair value to your EV.' + (cost > 0 && own > 0 ? ' To make the rest of your stake free, sell ' + pct(Math.min(own, cost / V), 0) + ' at fair, or any slice for ' + money(cost) + '.' : '');
+    var slices = [0.05, 0.10, 0.20, 0.25, 1 / 3, 0.50].filter(function (q) { return q <= own + 1e-9; });
+    document.querySelector('#rcTable tbody').innerHTML = slices.map(function (q) {
+      var basis = own > 0 ? q / own * cost : 0, market = q * hammer, fair = q * V, ask = fair * (1 + mk);
+      var keep = own - q, costAfter = cost - fair, evAfter = keep * V - costAfter;
+      return '<tr><td class="r num">' + pct(q, 0) + '</td><td class="r num">' + money(basis) + '</td><td class="r num">' + money(market) + '</td><td class="r num">' + money(fair) + '</td><td class="r num"><b>' + money(ask) + '</b></td><td class="r num">' + pct(keep, 0) + '</td><td class="r num">' + money(costAfter) + '</td><td class="r num">' + money(evAfter, true) + '</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="muted">Ownership is 0%. Enter the stake you would hold.</td></tr>';
+  }
+
+  function renderCharts(e) {
+    var rows = e.rows.slice().sort(function (a, b) { return b.r.potShare - a.r.potShare; });
+    var maxShare = Math.max.apply(null, rows.map(function (x) { return Math.max(x.r.potShare, x.t.sold ? x.implied : 0); })) || 0.01;
+    document.getElementById('shareChart').innerHTML = rows.map(function (x) {
+      var w = (x.r.potShare / maxShare * 100).toFixed(1), mk = x.t.sold && x.implied > 0 ? '<s style="left:' + (x.implied / maxShare * 100).toFixed(1) + '%" title="Market ' + pct(x.implied) + '"></s>' : '';
+      return '<div class="lbl' + (x.t.mine ? ' mine' : '') + '">' + esc(teamLabel(x.t)) + '</div><div class="track" title="Model ' + pct(x.r.potShare) + '"><b style="width:' + w + '%"></b>' + mk + '</div><div class="val num">' + pct(x.r.potShare) + (x.t.sold && x.implied > 0 ? ' · ' + pct(x.implied) : '') + '</div>';
+    }).join('');
+    var sold = e.rows.filter(function (x) { return x.t.sold && !x.t.reserveWon && Number(x.t.bid) > 0; }).sort(function (a, b) { return b.fair - a.fair; });
+    var maxV = Math.max.apply(null, sold.map(function (x) { return Math.max(x.fair, Number(x.t.bid)); }).concat([1]));
+    document.getElementById('priceChart').innerHTML = sold.length ? sold.map(function (x) {
+      var bid = Number(x.t.bid);
+      return '<div class="lbl' + (x.t.mine ? ' mine' : '') + '">' + esc(teamLabel(x.t)) + '</div><div class="track" title="Fair ' + money(x.fair) + ', paid ' + money(bid) + ', cap ' + money(x.cap) + '"><b style="width:' + (x.fair / maxV * 100).toFixed(1) + '%"></b><u style="left:' + (x.cap / maxV * 100).toFixed(1) + '%"></u><s style="left:' + (bid / maxV * 100).toFixed(1) + '%"></s></div><div class="val num">' + money(bid) + ' / ' + money(x.fair) + '</div>';
+    }).join('') : '<div class="muted" style="grid-column:1/-1">No teams sold yet.</div>';
+  }
+
+  function renderSetup() {
+    var s = state.settings;
+    document.getElementById('sBudget').value = s.budget;
+    document.getElementById('sEdge').value = s.edge;
+    document.getElementById('sUnsold').value = s.unsold;
+    document.getElementById('sPotOverride').value = s.potOverride || 0;
+    document.getElementById('sRake').value = s.rake;
+    document.getElementById('sAuto').checked = !!s.auto;
+    document.getElementById('sAssumeBB').checked = !!s.assumeBB;
+    document.getElementById('sBBMode').value = s.bbMode || 'match';
+    document.getElementById('sRounds').value = String(s.rounds || 1);
+    document.getElementById('sSatW').value = s.satWeight;
+    document.getElementById('rosterVer').textContent = 'Roster: ' + BASE.version + '. When the final handicaps arrive the roster is replaced and every auction entry is kept.';
+    document.getElementById('sUnsoldBB').checked = !!s.unsoldBB;
+    for (var i = 0; i < 5; i++) document.getElementById('p' + i).value = s.payouts[i];
+    var sum = s.payouts.reduce(function (a, b) { return a + (Number(b) || 0); }, 0);
+    document.getElementById('paySum').textContent = 'Adds up to ' + sum + '%' + (sum !== 100 ? ' (should be 100%)' : '');
+    document.getElementById('sAllow').value = String(s.allowance);
+    document.getElementById('sSims').value = String(s.sims);
+  }
+
+  function renderAll() {
+    var e = econ();
+    renderHeader(e);
+    if (ui.tab === 'board') renderBoard(e);
+    if (ui.tab === 'bets') renderBets(e);
+    if (ui.tab === 'charts') renderCharts(e);
+    if (ui.tab === 'setup') renderSetup();
+  }
+
+  // ---------- events ----------
+  function findTeam(id) { for (var i = 0; i < state.teams.length; i++) if (state.teams[i].id === id) return state.teams[i]; return null; }
+  function onCardInput(ev, commit) {
+    if (rendering) return; // change fired by an input being replaced mid-render
+    var el = ev.target, card = el.closest('.card'); if (!card) return;
+    var t = findTeam(card.dataset.id); if (!t) return;
+    var f = el.dataset.f; if (!f) return;
+    var resim = false;
+    if (el.dataset.p != null) {
+      var p = t.players[Number(el.dataset.p)];
+      if (f === 'name') p.name = el.value;
+      else if (f === 'tee') { p.tee = el.value; p.strokes = M.playingHandicap(p.index, p.tee, Number(state.settings.allowance)); resim = true; }
+      else if (f === 'strokes') { var sv2 = parseInt(el.value, 10); p.strokes = isNaN(sv2) ? null : sv2; resim = true; }
+      else { var n = parseFloat(el.value); if (!isNaN(n)) { p[f] = n; resim = true; } }
+    } else if (el.type === 'checkbox') {
+      t[f] = el.checked;
+      if (f === 'sold' && el.checked && !(Number(t.bid) > 0) && Number(t.live) > 0) t.bid = Number(t.live);
+    } else if (f === 'note') t.note = el.value;
+    else if (f === 'satNet') { var sv = parseFloat(el.value); t.satNet = isNaN(sv) ? null : sv; resim = true; }
+    else { var v = parseFloat(el.value); t[f] = isNaN(v) ? 0 : v; }
+    touch();
+    if (resim) { if (!commit) return; ensureSim(); }
+    // Checkbox and select edits re-render the card; typing only refreshes numbers on commit.
+    if (el.type === 'checkbox' || el.tagName === 'SELECT' || commit) scheduleRender(); else renderHeader(econ());
+  }
+  var cards = document.getElementById('cards');
+  cards.addEventListener('input', function (ev) { if (ev.target.type === 'checkbox' || ev.target.tagName === 'SELECT') return; onCardInput(ev, false); });
+  cards.addEventListener('change', function (ev) { onCardInput(ev, true); });
+  cards.addEventListener('toggle', function (ev) { var d = ev.target; if (d.tagName === 'DETAILS') ui.open[d.dataset.id] = d.open; }, true);
+
+  document.getElementById('sort').addEventListener('change', function (ev) { ui.sort = ev.target.value; try { localStorage.setItem('pog-ui', JSON.stringify(ui)); } catch (e) {} renderAll(); });
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (b) {
+    b.addEventListener('click', function () {
+      ui.filter = b.dataset.filter;
+      Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (c) { c.setAttribute('aria-pressed', c === b ? 'true' : 'false'); });
+      renderAll();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) {
+    b.addEventListener('click', function () {
+      ui.tab = b.dataset.tab;
+      Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (c) { c.setAttribute('aria-selected', c === b ? 'true' : 'false'); });
+      ['board', 'bets', 'charts', 'setup'].forEach(function (n) { document.getElementById('tab-' + n).hidden = n !== ui.tab; });
+      renderAll();
+      window.scrollTo(0, 0);
+    });
+  });
+
+  function readSetup() {
+    var s = state.settings, resim = false;
+    s.budget = Number(document.getElementById('sBudget').value) || 0;
+    s.edge = Number(document.getElementById('sEdge').value) || 0;
+    s.unsold = Number(document.getElementById('sUnsold').value) || 0;
+    s.potOverride = Number(document.getElementById('sPotOverride').value) || 0;
+    s.rake = Number(document.getElementById('sRake').value) || 0;
+    s.auto = document.getElementById('sAuto').checked;
+    s.assumeBB = document.getElementById('sAssumeBB').checked;
+    s.bbMode = document.getElementById('sBBMode').value;
+    var rounds = Number(document.getElementById('sRounds').value) || 1; if (rounds !== Number(s.rounds)) { s.rounds = rounds; resim = true; }
+    var satW = Number(document.getElementById('sSatW').value) || 0; if (satW !== Number(s.satWeight)) { s.satWeight = satW; resim = true; }
+    s.unsoldBB = document.getElementById('sUnsoldBB').checked;
+    var pay = []; for (var i = 0; i < 5; i++) pay.push(Number(document.getElementById('p' + i).value) || 0);
+    if (JSON.stringify(pay) !== JSON.stringify(s.payouts)) { s.payouts = pay; resim = true; }
+    var allow = Number(document.getElementById('sAllow').value); if (allow !== Number(s.allowance)) { s.allowance = allow; resim = true; }
+    var sims = Number(document.getElementById('sSims').value); if (sims !== Number(s.sims)) { s.sims = sims; resim = true; }
+    touch();
+    if (resim) ensureSim();
+    renderAll();
+  }
+  document.getElementById('tab-setup').addEventListener('change', function (ev) { if (ev.target.closest('.form')) readSetup(); });
+  document.getElementById('rcTeam').addEventListener('change', function (ev) { rc.team = ev.target.value; rc.touched = false; renderAll(); });
+  ['rcHammer', 'rcOwn', 'rcCost', 'rcMarkup'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function (ev) { rc.touched = true; rc[id.slice(2).toLowerCase()] = Number(ev.target.value) || 0; renderAll(); });
+  });
+  document.getElementById('rAvg').addEventListener('change', function (ev) { state.settings.unsold = Number(ev.target.value) || 0; touch(); renderAll(); });
+  document.getElementById('rRes').addEventListener('change', function (ev) {
+    var mine = state.teams.filter(function (t) { return t.mine; })[0]; if (!mine) return;
+    mine.reserve = Number(ev.target.value) || 0; touch(); renderAll();
+  });
+  document.getElementById('recompute').addEventListener('click', function () { simKey = ''; baseKey = ''; ensureSim(); renderAll(); });
+
+  function confirmBox(msg, onYes) {
+    var box = document.getElementById('confirmBox');
+    box.hidden = false;
+    box.innerHTML = '<p>' + esc(msg) + '</p><div class="btn-row"><button class="btn danger" id="cYes">Yes, do it</button><button class="btn" id="cNo">Cancel</button></div>';
+    document.getElementById('cYes').onclick = function () { box.hidden = true; onYes(); };
+    document.getElementById('cNo').onclick = function () { box.hidden = true; };
+  }
+  document.getElementById('resetBids').addEventListener('click', function () {
+    confirmBox('Clear every price, buyback, reserve, plan and note on all 32 teams? Player edits and settings stay.', function () {
+      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; t.resaleFrac = 0; t.resaleAmt = 0; });
+      touch(); ensureSim(); renderAll();
+    });
+  });
+  document.getElementById('resetAll').addEventListener('click', function () {
+    confirmBox('Reset everything to the original tee sheet, handicaps and default settings? All entries will be lost.', function () {
+      state = freshState(); touch(); ensureSim(); renderAll();
+    });
+  });
+
+  // ---------- boot ----------
+  try { var u = JSON.parse(localStorage.getItem('pog-ui') || 'null'); if (u && u.sort) { ui.sort = u.sort; document.getElementById('sort').value = ui.sort; } } catch (e) {}
+  state = loadLocal() || freshState();
+  if (rosterChanged) { rosterChanged = false; state.updatedAt = Date.now(); saveLocal(); }
+  setSync('Computing');
+  setTimeout(function () {
+    ensureSim();
+    renderAll();
+    setSync(db ? 'Synced' : 'Ready');
+    initDb();
+  }, 30);
+})();
+</script>
