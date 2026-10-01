@@ -208,6 +208,22 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         <tbody></tbody>
       </table>
     </div>
+    <h3 style="margin-top:18px">Resale calculator</h3>
+    <p class="small muted">What to charge for a slice of a team you own. Pick a team; if you hold a position its numbers fill in, otherwise enter the scenario. Cost basis is what you paid per point. Market basis is the room's price per point. Fair is the model's value of the slice, the price at which your EV is unchanged.</p>
+    <div class="form" style="margin:8px 0 10px">
+      <label class="wide">Team <select id="rcTeam"></select></label>
+      <label>Hammer price <span class="money"><input type="number" id="rcHammer" min="0" step="50"></span></label>
+      <label>My ownership (% of team) <input type="number" id="rcOwn" min="0" max="100" step="5"></label>
+      <label>My net cost <span class="money"><input type="number" id="rcCost" min="0" step="25"></span></label>
+      <label>Markup over fair (%) <input type="number" id="rcMarkup" min="0" step="5"></label>
+    </div>
+    <p class="small" id="rcSummary"></p>
+    <div class="table-wrap">
+      <table id="rcTable">
+        <thead><tr><th class="r">Slice</th><th class="r">Cost basis</th><th class="r">Market</th><th class="r">Fair</th><th class="r">Ask</th><th class="r">Keep</th><th class="r">Net cost after</th><th class="r">EV after (at fair)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <h3 style="margin-top:18px">My team: reserve scenarios</h3>
     <div class="form" style="margin:8px 0 10px">
       <label>Expected average hammer price <span class="money"><input type="number" id="rAvg" min="0" step="100"></span></label>
@@ -321,6 +337,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       <div class="btn-row"><button class="btn primary" id="recompute">Recompute model</button></div>
     </div>
     <div class="setup-block">
+      <h3>How the numbers work</h3>
+      <div class="note">
+        <p><b>Odds.</b> The model plays Sunday thousands of times. Each player gets a course handicap from his index and tee (Greystone ratings), then 85% of it as playing strokes, placed on holes by stroke index. On every hole each player draws a score from a distribution keyed to his handicap (how often a 15 makes birdie, par, bogey, double, worse), with a per-round form swing so hot and cold days happen. The team's hole score is the better net ball. Teams are ranked, the top 5 are paid with ties split, and a team's <b>share</b> is its average cut of the pot across all those Sundays.</p>
+        <p><b>Fair value</b> = share × pot estimate (less any house take). It is what 100% of the team is worth to a risk-neutral buyer. <b>Cap</b> = fair, halved if the buyback puts the team's money into the pot, then less your target edge. <b>EV</b> of a position = your ownership × fair, minus your net cost. Market share is the team's money in the pot divided by the pot, so a team whose model share beats its market share was bought cheap.</p>
+        <p><b>Why teams differ.</b> In one net best ball, what wins is a reliable net-par floor from one player plus net birdies from the other. The 85% allowance takes more strokes off high handicaps, so the best structure here is a very low index (loses almost nothing) with a 13 to 17 partner (keeps most of his strokes and supplies the birdies). Two similar mid handicaps with no spread, or a plus handicapper who gives strokes back, sit at the bottom. The gaps are small: the best team wins about 4.5% of the time, the worst about 1.5%.</p>
+      </div>
+    </div>
+    <div class="setup-block">
       <h3>Data</h3>
       <p class="small muted" id="syncDetail"></p>
       <p class="small muted" id="rosterVer"></p>
@@ -342,43 +366,45 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
 
 <script>
 // 2026 Pot of Gold — Round 1 tee sheet (Sat Oct 3, Greystone) paired 1+2 / 3+4 per group.
-// Handicap Index from the player roster; tee code from the tee sheet.
+// Handicap Index from the final player roster (Oct 1); tee code from the Round 1 tee sheet.
+// Assumed pairings for the two late roster changes: Eric Gallant with Colin Decunha (group 4A),
+// Mike Kluge replacing Paul Nalli with Jiten Waghela (group 9B). Edit on the board if different.
 (function (root) {
   var P = function (name, index, tee) { return { name: name, index: index, tee: tee || 'GRY', adj: 0 }; };
-  var ROSTER_VERSION = '2026-09-29 preliminary';
+  var ROSTER_VERSION = '2026-10-01 final';
   var TEAMS = [
     { id: 't01', group: '1A', players: [P('Quinn Kerr', 1.0, 'BL'), P('Jamie Janjevich', 10.3)] },
-    { id: 't02', group: '1A', players: [P('Jeff Smith', 6.1), P('Tyson MacLean', 14.2)] },
+    { id: 't02', group: '1A', players: [P('Jeff Smith', 6.4), P('Tyson MacLean', 14.4)] },
     { id: 't03', group: '1B', players: [P('Greg Lewis', 1.2, 'BL'), P('Mirco Durante', 13.4)] },
-    { id: 't04', group: '1B', players: [P('Scott Joyce', 9.4), P('Brian Murray', 14.0)] },
+    { id: 't04', group: '1B', players: [P('Scott Joyce', 9.6), P('Brian Murray', 13.5)] },
     { id: 't05', group: '2',  players: [P('Alex Durante', 9.5), P('Bill Gray', 10.1)] },
-    { id: 't06', group: '2',  players: [P('Jeremy Nguyen', 8.7), P('Scott Dawkins', 24.9)] },
-    { id: 't07', group: '3',  players: [P('Scott Gamble', 6.8), P('Hugh McMaster', 18.4, 'WHT')] },
+    { id: 't06', group: '2',  players: [P('Jeremy Nguyen', 8.9), P('Scott Dawkins', 24.6)] },
+    { id: 't07', group: '3',  players: [P('Scott Gamble', 6.7), P('Hugh McMaster', 17.5, 'WHT')] },
     { id: 't08', group: '3',  players: [P('Ryan Kay', 7.3), P('Mark Bertoia', 16.1, 'WHT')] },
     { id: 't09', group: '4A', players: [P('Tim McDonald', 11.0), P('Jay Littlejohn', 10.1)] },
-    { id: 't10', group: '4A', players: [P('Colin Decunha', 15.1, 'GRN'), P('Partner TBD', 14.0)] },
-    { id: 't11', group: '4B', players: [P('Mark Ollerenshaw', 12.6), P('Dave Kelly', 10.0)] },
-    { id: 't12', group: '4B', players: [P('Graham Koshurba', 9.6), P('Trevor Riebot', 12.3)] },
-    { id: 't13', group: '5A', players: [P('Shawn Holloway', 7.4), P('Cory Raymond', 17.2)] },
-    { id: 't14', group: '5A', players: [P('Rick Warren', 5.7), P('Nick Lambevski', 15.9, 'WHT')] },
-    { id: 't15', group: '5B', players: [P('Jonathan Goodman', 5.2), P('Fraser Plant', 14.4, 'WHT')] },
+    { id: 't10', group: '4A', players: [P('Colin Decunha', 14.7, 'GRN'), P('Eric Gallant', 5.8)] },
+    { id: 't11', group: '4B', players: [P('Mark Ollerenshaw', 12.5), P('Dave Kelly', 10.0)] },
+    { id: 't12', group: '4B', players: [P('Graham Koshurba', 9.6), P('Trevor Riebot', 12.1)] },
+    { id: 't13', group: '5A', players: [P('Shawn Holloway', 7.3), P('Cory Raymond', 17.2)] },
+    { id: 't14', group: '5A', players: [P('Rick Warren', 5.8), P('Nick Lambevski', 17.0, 'WHT')] },
+    { id: 't15', group: '5B', players: [P('Jonathan Goodman', 5.3), P('Fraser Plant', 14.4, 'WHT')] },
     { id: 't16', group: '5B', players: [P('Michael Sousa', 7.8), P('Charles Cartwright', 14.2, 'WHT')] },
-    { id: 't17', group: '6',  players: [P('Rob Kunka', 6.0), P('Ryan Stevens', 13.2)], mine: true },
-    { id: 't18', group: '6',  players: [P('Daniel Rust', 5.8), P('Rohit Mehra', 16.5, 'WHT')] },
+    { id: 't17', group: '6',  players: [P('Rob Kunka', 6.6), P('Ryan Stevens', 13.2)], mine: true },
+    { id: 't18', group: '6',  players: [P('Daniel Rust', 5.7), P('Rohit Mehra', 16.6, 'WHT')] },
     { id: 't19', group: '7',  players: [P('Peter Blazevic', -2.7, 'BL'), P('Ed Loeprich', 12.6, 'WHT')] },
-    { id: 't20', group: '7',  players: [P('Steve Scannell', 9.7), P('Stephen Mangotich', 17.4, 'WHT')] },
+    { id: 't20', group: '7',  players: [P('Steve Scannell', 9.4), P('Stephen Mangotich', 17.4, 'WHT')] },
     { id: 't21', group: '8A', players: [P('Peter White', 3.0), P('Jonathan Riding', 14.5)] },
-    { id: 't22', group: '8A', players: [P('Chris Gerrie', 1.0, 'BL'), P('Henry Brinke', 19.2, 'WHT')] },
+    { id: 't22', group: '8A', players: [P('Chris Gerrie', 1.0, 'BL'), P('Henry Brinke', 19.0, 'WHT')] },
     { id: 't23', group: '8B', players: [P("Corey O'Sullivan", 9.5), P('Bob Roselle', 22.1)] },
-    { id: 't24', group: '8B', players: [P('Daryl Brinke', 4.0, 'BL'), P('Andrew Grunda', 13.6)] },
-    { id: 't25', group: '9A', players: [P('Alex Abramov', 6.5), P('Arjun Chowdhury', 17.5)] },
-    { id: 't26', group: '9A', players: [P('Trevor Ash', 14.1), P('Trevor Wasney', 9.9)] },
-    { id: 't27', group: '9B', players: [P('Jiten Waghela', 5.5), P('Paul Nalli', 16.7)] },
-    { id: 't28', group: '9B', players: [P('Vince Enright', 4.0), P('Isaiah Sarkissian', 16.5)] },
-    { id: 't29', group: '10A', players: [P('Michael Alderman', 2.2), P('Frank Risi', 12.5)] },
-    { id: 't30', group: '10A', players: [P('James Drew', 7.2), P('Paulo Vieira', 22.7)] },
-    { id: 't31', group: '10B', players: [P('Al Dairou', 3.9), P('David Buchanan', 10.7, 'WHT')] },
-    { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL'), P('Mike Smith', 11.2, 'WHT')] }
+    { id: 't24', group: '8B', players: [P('Daryl Brinke', 4.0, 'BL'), P('Andrew Grunda', 13.3)] },
+    { id: 't25', group: '9A', players: [P('Alex Abramov', 6.5), P('Arjun Chowdhury', 17.9)] },
+    { id: 't26', group: '9A', players: [P('Trevor Ash', 14.1), P('Trevor Wasney', 10.2)] },
+    { id: 't27', group: '9B', players: [P('Jiten Waghela', 5.5), P('Mike Kluge', 9.9)] },
+    { id: 't28', group: '9B', players: [P('Vince Enright', 4.0), P('Isaiah Sarkissian', 16.7)] },
+    { id: 't29', group: '10A', players: [P('Michael Alderman', 1.8), P('Frank Risi', 12.5)] },
+    { id: 't30', group: '10A', players: [P('James Drew', 7.6), P('Paulo Vieira', 23.0)] },
+    { id: 't31', group: '10B', players: [P('Al Dairou', 3.9), P('David Buchanan', 10.6, 'WHT')] },
+    { id: 't32', group: '10B', players: [P('Matt Robinson', -1.2, 'BL'), P('Mike Smith', 11.1, 'WHT')] }
   ];
   TEAMS.version = ROSTER_VERSION;
   if (typeof module !== 'undefined' && module.exports) module.exports = TEAMS;
@@ -905,6 +931,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       return '<tr><td>' + esc(teamLabel(x.t)) + (x.t.mine ? ' <span class="pill accent">mine</span>' : '') + '</td><td class="r num">' + money(x.cost) + '</td><td class="r num">' + pct(x.own, 0) + '</td><td class="r num">' + (x.resaleFrac > 0 ? pct(x.resaleFrac, 0) + ' / ' + money(x.resaleAmt) : '') + '</td><td class="r num">' + money(x.own * x.fair) + '</td><td class="r num">' + money(x.ev, true) + '</td><td class="r num">' + pct(x.r.pWin) + '</td></tr>';
     }).join('') + (mine.length ? '<tr class="total"><td>Total</td><td class="r num">' + money(e.totalCost) + '</td><td></td><td class="r num">' + (e.totalResale ? money(e.totalResale) : '') + '</td><td class="r num">' + money(e.totalCost + e.totalEv) + '</td><td class="r num">' + money(e.totalEv, true) + '</td><td></td></tr>' : '<tr><td colspan="7" class="muted">Nothing owned yet. Mark a team sold and enter your dollars in the winning bid, or tick the buyback on your own team.</td></tr>');
     renderReserve(e);
+    renderResaleCalc(e);
     var plans = e.rows.filter(function (x) { return !x.t.sold && Number(x.t.plan) > 0; }).sort(function (a, b) { return Number(b.t.plan) - Number(a.t.plan); });
     var pb = document.querySelector('#planTable tbody');
     pb.innerHTML = plans.map(function (x) {
@@ -954,6 +981,37 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       rows.push('<tr><td class="r num">' + money(b) + (b === R ? ' <span class="pill accent">reserve</span>' : '') + '</td><td>' + outcome + '</td><td class="r num">' + pct(own, 0) + '</td><td class="r num">' + money(each) + '</td><td class="r num"><span class="pill ' + cls + '">' + money(ev / 2, true) + '</span></td><td class="r num">' + hedge + '</td></tr>');
     });
     tb.innerHTML = rows.join('');
+  }
+
+  var rc = { team: null, hammer: null, own: null, cost: null, markup: 25, touched: false };
+  function renderResaleCalc(e) {
+    var sel = document.getElementById('rcTeam');
+    if (!sel.options.length) {
+      sel.innerHTML = e.rows.map(function (x) { return '<option value="' + x.t.id + '">' + esc(teamLabel(x.t)) + (x.t.mine ? ' (my team)' : '') + '</option>'; }).join('');
+      var firstPos = e.rows.filter(function (x) { return x.grossOwn > 0; })[0] || e.rows.filter(function (x) { return x.t.mine; })[0];
+      rc.team = firstPos ? firstPos.t.id : e.rows[0].t.id;
+    }
+    sel.value = rc.team;
+    var x = e.rows.filter(function (r) { return r.t.id === rc.team; })[0]; if (!x) return;
+    // Defaults from the live position, unless the user has typed over them.
+    var defHammer = Number(x.t.bid) || Number(x.t.live) || Math.round(state.settings.unsold);
+    var defOwn = x.grossOwn > 0 ? x.own * 100 : 100;
+    var defCost = x.grossOwn > 0 ? x.cost : defHammer;
+    if (!rc.touched) { rc.hammer = defHammer; rc.own = defOwn; rc.cost = defCost; }
+    var H = document.getElementById('rcHammer'), O = document.getElementById('rcOwn'), C = document.getElementById('rcCost'), Mk = document.getElementById('rcMarkup');
+    if (document.activeElement !== H) H.value = Math.round(rc.hammer);
+    if (document.activeElement !== O) O.value = Math.round(rc.own);
+    if (document.activeElement !== C) C.value = Math.round(rc.cost);
+    if (document.activeElement !== Mk) Mk.value = rc.markup;
+    var V = x.fair, own = (Number(rc.own) || 0) / 100, cost = Number(rc.cost) || 0, hammer = Number(rc.hammer) || 0, mk = (Number(rc.markup) || 0) / 100;
+    var evNow = own * V - cost;
+    document.getElementById('rcSummary').innerHTML = 'You hold <b>' + pct(own, 0) + '</b> of ' + esc(teamLabel(x.t)) + ' at a net cost of <b>' + money(cost) + '</b>. Fair value of 100% is <b>' + money(V) + '</b> at the current pot, so your stake is worth ' + money(own * V) + ' and your EV is <b>' + money(evNow, true) + '</b>. Selling at fair keeps that EV and returns cash. Selling at the ask (fair + ' + Math.round(mk * 100) + '%) adds ' + Math.round(mk * 100) + '% of the slice\'s fair value to your EV.' + (cost > 0 && own > 0 ? ' To make the rest of your stake free, sell ' + pct(Math.min(own, cost / V), 0) + ' at fair, or any slice for ' + money(cost) + '.' : '');
+    var slices = [0.05, 0.10, 0.20, 0.25, 1 / 3, 0.50].filter(function (q) { return q <= own + 1e-9; });
+    document.querySelector('#rcTable tbody').innerHTML = slices.map(function (q) {
+      var basis = own > 0 ? q / own * cost : 0, market = q * hammer, fair = q * V, ask = fair * (1 + mk);
+      var keep = own - q, costAfter = cost - fair, evAfter = keep * V - costAfter;
+      return '<tr><td class="r num">' + pct(q, 0) + '</td><td class="r num">' + money(basis) + '</td><td class="r num">' + money(market) + '</td><td class="r num">' + money(fair) + '</td><td class="r num"><b>' + money(ask) + '</b></td><td class="r num">' + pct(keep, 0) + '</td><td class="r num">' + money(costAfter) + '</td><td class="r num">' + money(evAfter, true) + '</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="muted">Ownership is 0%. Enter the stake you would hold.</td></tr>';
   }
 
   function renderCharts(e) {
@@ -1070,6 +1128,10 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     renderAll();
   }
   document.getElementById('tab-setup').addEventListener('change', function (ev) { if (ev.target.closest('.form')) readSetup(); });
+  document.getElementById('rcTeam').addEventListener('change', function (ev) { rc.team = ev.target.value; rc.touched = false; renderAll(); });
+  ['rcHammer', 'rcOwn', 'rcCost', 'rcMarkup'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function (ev) { rc.touched = true; rc[id.slice(2).toLowerCase()] = Number(ev.target.value) || 0; renderAll(); });
+  });
   document.getElementById('rAvg').addEventListener('change', function (ev) { state.settings.unsold = Number(ev.target.value) || 0; touch(); renderAll(); });
   document.getElementById('rRes').addEventListener('change', function (ev) {
     var mine = state.teams.filter(function (t) { return t.mine; })[0]; if (!mine) return;
