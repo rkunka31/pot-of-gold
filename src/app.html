@@ -332,7 +332,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       </div>
       <div class="note">
         <p><b>Event rules:</b> two-man one net best, 85% allowance, Calcutta scored on Sunday only, top 5 owners plus ties paid, a tie for first settled on 18.</p>
-        <p><b>Saturday carry-over.</b> After Round 1, enter each team's Saturday net score on its card. The model shifts that team's expected Sunday score by the weight above times the gap between what it shot and what the model expected. 20% is a reasonable weight for one round of evidence given that some handicaps are soft; 0% ignores Saturday.</p>
+        <p><b>Saturday carry-over.</b> After Round 1, enter each team's Saturday net score on its card. The model shifts that team's expected Sunday score by the weight above times the gap between what it shot and what the model expected. 10% is the default. On Saturday's results the scatter around the model was no wider than one round's normal noise, so a single round deserves little weight; 0% ignores Saturday.</p>
         <p>Strokes come from the official tee sheet. Changing a player's tee recalculates his strokes the way the committee does: index × slope ÷ 113 + rating − 72, times 85%, rounded. Ratings and slopes the committee used: Gold 74.0/143, Blue 72.1/140, Grey 71.2/132, White 70.4/127, Green 69.2/about 123.</p>
       </div>
       <div class="btn-row"><button class="btn primary" id="recompute">Recompute model</button></div>
@@ -372,7 +372,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   'use strict';
   var M = window.PotModel, BASE = window.POT_TEAMS;
   var LS_KEY = 'pog-board-v1';
-  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'reimburse', potOverride: 0, payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 20, sims: 3000 };
+  var DEFAULT_SETTINGS = { budget: 2000, edge: 20, unsold: 1500, rake: 0, auto: true, assumeBB: true, unsoldBB: false, bbMode: 'reimburse', potOverride: 0, payouts: [45, 25, 15, 10, 5], allowance: 0.85, rounds: 1, satWeight: 10, sims: 3000 };
   var state, sim = null, simKey = '';
   var ui = { tab: 'board', sort: 'model', filter: 'all', open: {} };
   var db = null, saveTimer = null, writeChain = Promise.resolve(), rosterChanged = false;

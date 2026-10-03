@@ -140,6 +140,7 @@
 
     var offsets = settings.offsets || null; // strokes added to each team's total (Saturday carry-over)
     var meanScore = new Float64Array(n);   // mean simulated total before offsets
+    var sqScore = new Float64Array(n);     // for the per-team standard deviation
     var payShare = new Float64Array(n);   // expected share of pot, all positions
     var posProb = [];                      // posProb[i][k] = P(team i finishes in position k+1 (before ties))
     for (var i = 0; i < n; i++) posProb.push(new Float64Array(payouts.length));
@@ -174,7 +175,12 @@
           }
         }
         meanScore[ti] += team / sims;
-        totals[ti] = team + (offsets ? offsets[ti] || 0 : 0);
+        sqScore[ti] += team * team / sims;
+        // Carry-over offsets are fractional; add them as whole strokes with stochastic rounding so the
+        // expected shift is exact and scores stay integers (ties then happen as often as they really do).
+        var o = offsets ? offsets[ti] || 0 : 0, add = 0;
+        if (o) { var fl = Math.floor(o); add = fl + (r() < o - fl ? 1 : 0); }
+        totals[ti] = team + add;
       }
       // Rank (lower is better), split ties.
       for (var o = 0; o < n; o++) order[o] = o;
@@ -191,7 +197,8 @@
           ranks[s * n + t2] = pos + 1;
           shares[s * n + t2] = each;
           payShare[t2] += each;
-          if (pos < payouts.length) posProb[t2][pos] += 1 / cnt;
+          // A tie group occupying places pos..end shares every paid place inside it.
+          for (var slot = pos; slot <= end && slot < payouts.length; slot++) posProb[t2][slot] += 1 / cnt;
         }
         pos = end + 1;
       }
@@ -209,7 +216,8 @@
         pMoney: pm,
         posProb: Array.prototype.slice.call(posProb[i]),
         potShare: payShare[i] / sims,  // expected fraction of the pot this team collects
-        meanScore: meanScore[i]        // expected net total vs par over the simulated rounds (no offset)
+        meanScore: meanScore[i],       // expected net total vs par over the simulated rounds (no offset)
+        sdScore: Math.sqrt(Math.max(0, sqScore[i] - meanScore[i] * meanScore[i]))
       };
     });
     return { teams: out, ranks: ranks, shares: shares, n: n, sims: sims };
