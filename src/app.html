@@ -380,7 +380,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   function freshTeam(b) {
     return { id: b.id, group: b.group, mine: !!b.mine,
       players: b.players.map(function (p) { return { name: p.name, index: p.index, tee: p.tee, strokes: p.strokes == null ? null : p.strokes, adj: 0 }; }),
-      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null, resaleFrac: 0, resaleAmt: 0 };
+      live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null, resaleFrac: 0, resaleAmt: 0, buyFrac: 0, buyAmt: 0 };
   }
   function freshState() {
     return { v: 2, updatedAt: Date.now(), rosterVersion: BASE.version, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
@@ -440,6 +440,12 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
           state = migrate(d); saveLocal();
           ensureSim(); renderAll();
           if (rosterChanged) { rosterChanged = false; touch(); }
+        } else if (Array.isArray(d.teams)) {
+          // Local copy is newer, but keep any Saturday score that exists only in the shared copy.
+          var filled = false, byId = {};
+          d.teams.forEach(function (rt) { byId[rt.id] = rt; });
+          state.teams.forEach(function (t) { var rt = byId[t.id]; if (t.satNet == null && rt && rt.satNet != null) { t.satNet = rt.satNet; filled = true; } });
+          if (filled) { touch(); ensureSim(); renderAll(); }
         }
         setSync('Synced', 'Synced to your Claude account. Open this page on any device to see the same board.');
       }, function (e) { setSync('Sync off', 'Live sync stopped (' + (e && e.code) + '). Reload to reconnect. Entries stay on this device.'); });
@@ -526,6 +532,8 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
           if (t.mine && t.buyback) { own += 0.25; cost += s.bbMode === 'reimburse' ? bid / 4 : bid / 2; }
         }
       }
+      // Slices bought from owners after the auction.
+      if (t.sold && Number(t.buyFrac) > 0) { own += Number(t.buyFrac) / 100; cost += Number(t.buyAmt) || 0; }
       // Resale: part of my stake sold on to other players after the auction.
       var grossOwn = own, grossCost = cost, resaleFrac = t.sold ? Math.min(own, (Number(t.resaleFrac) || 0) / 100) : 0, resaleAmt = t.sold ? Number(t.resaleAmt) || 0 : 0;
       own -= resaleFrac; cost -= resaleAmt;
@@ -592,7 +600,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     });
     if (ui.filter === 'sold') rows = rows.filter(function (x) { return x.t.sold; });
     if (ui.filter === 'unsold') rows = rows.filter(function (x) { return !x.t.sold; });
-    if (ui.filter === 'mine') rows = rows.filter(function (x) { return x.t.mine || x.cost > 0 || Number(x.t.plan) > 0 || Number(x.t.myIn) > 0; });
+    if (ui.filter === 'mine') rows = rows.filter(function (x) { return x.t.mine || x.cost > 0 || Number(x.t.plan) > 0 || Number(x.t.myIn) > 0 || Number(x.t.buyFrac) > 0; });
     return rows;
   }
 
@@ -616,7 +624,10 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     var myInBlock = t.mine ? '' : '<label>My $ in the winning bid <span class="money"><input type="number" data-f="myIn" step="50" min="0" value="' + (t.myIn || '') + '" placeholder="0"></span></label>';
     var market = t.sold && x.edge != null ? '<span><span class="k">Market share</span> ' + pct(x.implied) + ' vs model ' + pct(r.potShare) + ' <b>(' + (x.edge > 0 ? '+' : '') + Math.round(x.edge * 100) + '%)</b></span>' : '';
     var stake = x.grossOwn > 0 ? '<span><span class="k">My stake</span> ' + pct(x.own, 0) + ' for ' + money(x.cost) + (x.resaleFrac > 0 ? ' after selling ' + pct(x.resaleFrac, 0) + ' for ' + money(x.resaleAmt) : '') + ' · EV <b>' + money(x.ev, true) + '</b></span>' : '';
-    var showResale = t.mine || Number(t.myIn) > 0;
+    var buyBlock = t.sold ? '<label>Bought after auction (% of team) <input type="number" data-f="buyFrac" step="5" min="0" max="100" value="' + (t.buyFrac || '') + '" placeholder="0"></label>' +
+      '<label>I paid <span class="money"><input type="number" data-f="buyAmt" step="25" min="0" value="' + (t.buyAmt || '') + '" placeholder="0"></span></label>' +
+      '<div class="small muted wide" style="margin-top:-2px">At the hammer price 10% costs ' + money((Number(t.reserveWon ? (Number(t.bid) || 0) + 50 : t.bid) || 0) / 10) + '. The model values 10% at ' + money(x.fair / 10) + '; pay no more than ' + money(x.fair / 10 * (1 - (Number(state.settings.edge) || 0) / 100)) + ' per 10%.</div>' : '';
+    var showResale = t.mine || Number(t.myIn) > 0 || Number(t.buyFrac) > 0;
     var resaleBlock = showResale ? '<label>My share sold on (% of team) <input type="number" data-f="resaleFrac" step="5" min="0" max="100" value="' + (t.resaleFrac || '') + '" placeholder="0"></label>' +
       '<label>I received <span class="money"><input type="number" data-f="resaleAmt" step="50" min="0" value="' + (t.resaleAmt || '') + '" placeholder="0"></span></label>' +
       (x.grossOwn > 0 ? '<div class="small muted wide" style="margin-top:-2px">' + (t.mine ? 'Enter your half: if the team sells 50% for $1,000, that is 25% and $500 here. ' : '') + 'Fair price for a slice of the team: 25% = ' + money(0.25 * x.fair) + ', 50% = ' + money(0.5 * x.fair) + '. Selling at fair returns cash and leaves EV unchanged; selling above fair adds EV. You hold ' + pct(x.grossOwn, 0) + ' at ' + money(x.grossCost) + '; selling half of that at fair (' + money(0.5 * x.grossOwn * x.fair) + ') leaves ' + money(x.grossCost - 0.5 * x.grossOwn * x.fair) + ' at risk for ' + pct(0.5 * x.grossOwn, 0) + '.</div>' : '') : '';
@@ -634,7 +645,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         (t.sold ? '' : '<label>My plan <span class="money"><input type="number" data-f="plan" step="50" min="0" value="' + (t.plan || '') + '" placeholder="0"></span></label>') +
         '<label>Sold for <span class="money"><input type="number" data-f="bid" step="50" min="0" value="' + (t.bid || '') + '" placeholder="0"></span></label>' +
         '<label class="check"><input type="checkbox" data-f="sold" ' + (t.sold ? 'checked' : '') + '> Sold (hammer down)</label>' +
-        mineBlock + myInBlock + reserveBlock + resaleBlock + satBlock +
+        mineBlock + myInBlock + reserveBlock + buyBlock + resaleBlock + satBlock +
       '</div>' +
       '<div class="verdict"><span><span class="k">Combined</span> ' + (ph[0] + ph[1]) + ' strokes · spread ' + spread + '</span>' + market + stake + '</div>' +
       '<details' + open + ' data-id="' + t.id + '"><summary>Edit players / note</summary>' +
@@ -897,7 +908,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
   document.getElementById('resetBids').addEventListener('click', function () {
     confirmBox('Clear every price, buyback, reserve, plan and note on all 32 teams? Player edits and settings stay.', function () {
-      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; t.resaleFrac = 0; t.resaleAmt = 0; });
+      state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; t.resaleFrac = 0; t.resaleAmt = 0; t.buyFrac = 0; t.buyAmt = 0; });
       touch(); ensureSim(); renderAll();
     });
   });
