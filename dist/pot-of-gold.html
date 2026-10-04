@@ -209,6 +209,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         <tbody></tbody>
       </table>
     </div>
+    <h3 style="margin-top:18px">Buy list</h3>
+    <p class="small muted">Teams worth at least 25% more than their hammer price, best first. Price is the owners' cost: the hammer, or hammer + $50 where the players kept 100% on their reserve. The dollar columns show what share of the team each amount buys at that price.</p>
+    <div class="table-wrap">
+      <table id="buyTable">
+        <thead><tr><th>Team</th><th class="r">10% costs</th><th class="r">Max per 10%</th><th class="r">$50</th><th class="r">$100</th><th class="r">$150</th><th class="r">$200</th><th class="r">$250</th><th class="r">$300</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <h3 style="margin-top:18px">Resale calculator</h3>
     <p class="small muted">What to charge for a slice of a team you own. Pick a team; if you hold a position its numbers fill in, otherwise enter the scenario. Cost basis is what you paid per point. Market basis is the room's price per point. Fair is the model's value of the slice, the price at which your EV is unchanged.</p>
     <div class="form" style="margin:8px 0 10px">
@@ -980,6 +988,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       return '<tr><td>' + esc(teamLabel(x.t)) + (x.t.mine ? ' <span class="pill accent">mine</span>' : '') + '</td><td class="r num">' + money(x.cost) + '</td><td class="r num">' + pct(x.own, 0) + '</td><td class="r num">' + (x.resaleFrac > 0 ? pct(x.resaleFrac, 0) + ' / ' + money(x.resaleAmt) : '') + '</td><td class="r num">' + money(x.own * x.fair) + '</td><td class="r num">' + money(x.ev, true) + '</td><td class="r num">' + pct(x.r.pWin) + '</td></tr>';
     }).join('') + (mine.length ? '<tr class="total"><td>Total</td><td class="r num">' + money(e.totalCost) + '</td><td></td><td class="r num">' + (e.totalResale ? money(e.totalResale) : '') + '</td><td class="r num">' + money(e.totalCost + e.totalEv) + '</td><td class="r num">' + money(e.totalEv, true) + '</td><td></td></tr>' : '<tr><td colspan="7" class="muted">Nothing owned yet. Mark a team sold and enter your dollars in the winning bid, or tick the buyback on your own team.</td></tr>');
     renderReserve(e);
+    renderBuyList(e);
     renderResaleCalc(e);
     var plans = e.rows.filter(function (x) { return !x.t.sold && Number(x.t.plan) > 0; }).sort(function (a, b) { return Number(b.t.plan) - Number(a.t.plan); });
     var pb = document.querySelector('#planTable tbody');
@@ -1030,6 +1039,19 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       rows.push('<tr><td class="r num">' + money(b) + (b === R ? ' <span class="pill accent">reserve</span>' : '') + '</td><td>' + outcome + '</td><td class="r num">' + pct(own, 0) + '</td><td class="r num">' + money(each) + '</td><td class="r num"><span class="pill ' + cls + '">' + money(ev / 2, true) + '</span></td><td class="r num">' + hedge + '</td></tr>');
     });
     tb.innerHTML = rows.join('');
+  }
+
+  // Read-only: which sold teams can be bought below model value, and what each amount buys.
+  function renderBuyList(e) {
+    var edge = (Number(state.settings.edge) || 0) / 100;
+    var rows = e.rows.filter(function (x) { return x.t.sold && Number(x.t.bid) > 0; }).map(function (x) {
+      var price = (Number(x.t.bid) || 0) + (x.t.reserveWon ? 50 : 0);
+      return { x: x, price: price, ratio: x.fair / price };
+    }).filter(function (r) { return r.ratio >= 1.25; }).sort(function (a, b) { return b.ratio - a.ratio; });
+    document.querySelector('#buyTable tbody').innerHTML = rows.map(function (r) {
+      var cells = [50, 100, 150, 200, 250, 300].map(function (a) { return '<td class="r num">' + (a / r.price * 100).toFixed(1) + '%</td>'; }).join('');
+      return '<tr><td>' + esc(teamLabel(r.x.t)) + (r.x.own > 0 ? ' <span class="pill accent">own ' + pct(r.x.own, 0) + '</span>' : '') + '<div class="small muted">worth ' + (r.ratio).toFixed(1) + '× price</div></td><td class="r num">' + money(r.price / 10) + '</td><td class="r num">' + money(r.x.fair / 10 * (1 - edge)) + '</td>' + cells + '</tr>';
+    }).join('') || '<tr><td colspan="9" class="muted">No sold team is priced 25% or more below model value yet.</td></tr>';
   }
 
   var rc = { team: null, hammer: null, own: null, cost: null, markup: 25, touched: false };
