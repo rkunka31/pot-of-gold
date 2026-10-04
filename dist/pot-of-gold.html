@@ -654,6 +654,11 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   var state, sim = null, simKey = '';
   var ui = { tab: 'board', sort: 'model', filter: 'all', open: {} };
   var db = null, saveTimer = null, writeChain = Promise.resolve(), rosterChanged = false;
+  var lastServer = null, wipeOK = false;
+  function entryCount(st) {
+    if (!st || !Array.isArray(st.teams)) return 0;
+    return st.teams.filter(function (t) { return t.sold || Number(t.bid) > 0 || Number(t.reserve) > 0 || Number(t.plan) > 0 || Number(t.myIn) > 0 || Number(t.buyFrac) > 0; }).length;
+  }
 
   function freshTeam(b) {
     return { id: b.id, group: b.group, mine: !!b.mine,
@@ -661,7 +666,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
       live: 0, bid: 0, sold: false, buyback: false, reserve: 0, reserveWon: false, myIn: 0, plan: 0, note: '', satNet: null, resaleFrac: 0, resaleAmt: 0, buyFrac: 0, buyAmt: 0 };
   }
   function freshState() {
-    return { v: 2, updatedAt: Date.now(), rosterVersion: BASE.version, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
+    return { v: 2, updatedAt: 0, rosterVersion: BASE.version, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: BASE.map(freshTeam) };
   }
   function migrate(d) {
     var s = freshState();
@@ -700,6 +705,12 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   }
   function flush() {
     if (!db) return;
+    if (!wipeOK && lastServer && entryCount(lastServer) > 0 && entryCount(state) === 0) {
+      // This device has an empty board but the shared one has auction entries: take the shared one instead.
+      state = migrate(lastServer); saveLocal(); ensureSim(); renderAll();
+      setSync('Synced', 'This device had an empty board, so it loaded the shared board instead of overwriting it.');
+      return;
+    }
     var body = JSON.parse(JSON.stringify(state));
     writeChain = writeChain.then(function () { return db.doc('board/main').set(body); })
       .then(function () { setSync('Synced', 'Synced to your Claude account. Open this page on any device to see the same board.'); })
@@ -714,6 +725,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
         if (snap.metadata.hasPendingWrites) return;
         if (!snap.exists) { flush(); return; }
         var d = snap.data();
+        lastServer = d;
         if ((d.updatedAt || 0) > state.updatedAt) {
           state = migrate(d); saveLocal();
           ensureSim(); renderAll();
@@ -1185,12 +1197,14 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
     document.getElementById('cNo').onclick = function () { box.hidden = true; };
   }
   document.getElementById('resetBids').addEventListener('click', function () {
+    wipeOK = true;
     confirmBox('Clear every price, buyback, reserve, plan and note on all 32 teams? Player edits and settings stay.', function () {
       state.teams.forEach(function (t) { t.live = 0; t.bid = 0; t.sold = false; t.buyback = false; t.reserve = 0; t.reserveWon = false; t.myIn = 0; t.plan = 0; t.note = ''; t.satNet = null; t.resaleFrac = 0; t.resaleAmt = 0; t.buyFrac = 0; t.buyAmt = 0; });
       touch(); ensureSim(); renderAll();
     });
   });
   document.getElementById('resetAll').addEventListener('click', function () {
+    wipeOK = true;
     confirmBox('Reset everything to the original tee sheet, handicaps and default settings? All entries will be lost.', function () {
       state = freshState(); touch(); ensureSim(); renderAll();
     });
@@ -1199,7 +1213,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--fg); }
   // ---------- boot ----------
   try { var u = JSON.parse(localStorage.getItem('pog-ui') || 'null'); if (u && u.sort) { ui.sort = u.sort; document.getElementById('sort').value = ui.sort; } } catch (e) {}
   state = loadLocal() || freshState();
-  if (rosterChanged) { rosterChanged = false; state.updatedAt = Date.now(); saveLocal(); }
+  if (rosterChanged) { rosterChanged = false; saveLocal(); }
   setSync('Computing');
   setTimeout(function () {
     ensureSim();
